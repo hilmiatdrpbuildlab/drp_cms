@@ -8,6 +8,7 @@ import { getDb } from "@/lib/db";
 import { posts } from "@/lib/schema";
 
 import { createPost } from "./actions";
+import { NewArticleButton } from "./new-article-button";
 import { StatusBadge } from "./status-badge";
 
 export const metadata: Metadata = { title: "Blog" };
@@ -42,7 +43,7 @@ export default async function BlogList() {
           </p>
         </div>
         <form action={createPost}>
-          <button className="btn-primary">New article</button>
+          <NewArticleButton />
         </form>
       </div>
 
