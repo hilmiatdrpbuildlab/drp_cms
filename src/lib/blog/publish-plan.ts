@@ -80,7 +80,8 @@ export function planPublish(post: PostForPublish, today: string): PlanResult {
     author: post.authorName,
     category: post.category,
     tags: post.tags,
-    langs: post.langs as Lang[],
+    // English is the source the site translates from, so it is always published.
+    langs: ["en", ...post.langs.filter((l) => l !== "en")] as Lang[],
     excerpt: post.excerpt,
     cover: post.coverKey ? { src: articleMediaRef(post.slug, mediaFileName(post.coverKey)), alt: post.coverAlt } : undefined,
     video: post.video

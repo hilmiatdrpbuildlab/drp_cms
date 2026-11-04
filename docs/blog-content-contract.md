@@ -51,12 +51,14 @@ Markdown body (GitHub-flavoured: tables, fenced code, task lists). Images look l
 
 The keys always come in this order, so diffs stay readable. Paths under `media/` are relative to `content/blog/`.
 
-## What the site build must do
+## What the site build does
 
-1. Skip files with `draft: true`.
-2. Copy `content/blog/media/<slug>/` next to the generated article page, or rewrite `./media/…` to wherever it puts them.
-3. Render the body as Markdown **without raw HTML**. The CMS preview ignores HTML too, so what writers see is what they get.
-4. Render `video` as a click-to-load player: show the poster, and load the iframe only after a click or after cookie consent. Use `youtube-nocookie.com` and Vimeo `dnt=1`. Reuse the showreel logic in `concept/assets/site.js`.
-5. Translate only into `langs`. The source language is English.
-6. Output an Article JSON-LD and an RSS entry. Add the article to the sitemap.
-7. Run on every push that touches `content/blog/**` (GitHub Action: `build.js` + `localize.js`, then commit `concept/`).
+Implemented in drp_compro by `tools/concept/blog.js`, `build.js` and `localize.js`. Its rules are in `content/blog/README.md` there.
+
+1. Skips files with `draft: true`, including their images.
+2. Serves images once from `/media/blog/<slug>/`, not copied into each market. A missing or foreign image fails the build.
+3. Renders the body as Markdown **without raw HTML**. The CMS preview ignores HTML too, so what writers see is what they get. Code is never translated.
+4. Renders `video` as a click-to-load player: the poster is shown, and the iframe loads only after a click. It uses `youtube-nocookie.com` and Vimeo `dnt=1`.
+5. **Always publishes English**, the source language, plus the other languages in `langs`, machine-translated by DeepL. Markets in other languages get no page; their language links point to their `/blog/`. hreflang and the sitemap follow `langs`.
+6. Outputs BlogPosting JSON-LD, og:image from the cover, an RSS feed at `/feed.xml`, and sitemap entries.
+7. Runs on every push to `main` that touches `content/blog/**` (`.github/workflows/blog.yml`: `build.js` + `localize.js`, then commits `concept/`).

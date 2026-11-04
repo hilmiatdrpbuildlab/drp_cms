@@ -362,13 +362,15 @@ export function Editor({ initial, repo, branch, canPublish }: { initial: EditorP
             </Field>
           </Panel>
 
-          <Panel title="Languages" note="Each language is machine-translated by the site's build (DeepL) and should be reviewed.">
+          <Panel title="Languages" note="Write in English: it is always published, and the site's build machine-translates it (DeepL) into each other language you tick. Have translations reviewed.">
             <div className="grid grid-cols-2 gap-x-2 gap-y-1">
               {LANGS.map((l) => (
                 <label key={l} className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={fields.langs.includes(l)}
+                    disabled={l === "en"}
+                    title={l === "en" ? "The source language; always published" : undefined}
+                    checked={l === "en" || fields.langs.includes(l)}
                     onChange={(e) => set("langs", e.target.checked ? LANGS.filter((x) => x === l || fields.langs.includes(x)) : fields.langs.filter((x) => x !== l))}
                   />
                   {LANG_NAMES[l]}

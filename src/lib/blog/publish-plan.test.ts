@@ -97,6 +97,12 @@ test("collab video: https only, poster image copied", () => {
   assert.equal(bad.ok, false);
 });
 
+test("English is always published, first", () => {
+  const r = planPublish({ ...base, langs: ["fr", "nl"] }, "2026-11-04");
+  assert.ok(r.ok);
+  assert.deepEqual(r.plan.frontmatter.langs, ["en", "fr", "nl"]);
+});
+
 test("serialised frontmatter has a stable key order", () => {
   const r = planPublish(base, "2026-11-04");
   assert.ok(r.ok);
