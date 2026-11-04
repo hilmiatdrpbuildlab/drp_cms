@@ -1,0 +1,17 @@
+# cms.drpbuildlab.com — its own Netlify site, separate from drp_compro.
+# Netlify detects Next.js and adds its runtime automatically.
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# Internal tool: never indexed, never framed.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "same-origin"
+    X-Content-Type-Options = "nosniff"

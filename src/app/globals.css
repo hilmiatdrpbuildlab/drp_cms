@@ -1,0 +1,18 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --color-accent: oklch(0.55 0.17 255);
+  --color-accent-hover: oklch(0.49 0.17 255);
+}
+
+html { color-scheme: light; }
+body { @apply bg-zinc-50 text-zinc-900 antialiased; }
+
+@utility field { @apply block w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm shadow-xs outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:bg-zinc-100; }
+@utility label { @apply mb-1 block text-xs font-medium text-zinc-600; }
+@utility btn { @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50; }
+@utility btn-primary { @apply btn bg-accent text-white hover:bg-accent-hover; }
+@utility btn-secondary { @apply btn border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-100; }
+@utility btn-danger { @apply btn border border-red-200 bg-white text-red-700 hover:bg-red-50; }
