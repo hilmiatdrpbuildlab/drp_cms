@@ -61,4 +61,6 @@ Implemented in drp_compro by `tools/concept/blog.js`, `build.js` and `localize.j
 4. Renders `video` as a click-to-load player: the poster is shown, and the iframe loads only after a click. It uses `youtube-nocookie.com` and Vimeo `dnt=1`.
 5. **Always publishes English**, the source language, plus the other languages in `langs`, machine-translated by DeepL. Markets in other languages get no page; their language links point to their `/blog/`. hreflang and the sitemap follow `langs`.
 6. Outputs BlogPosting JSON-LD, og:image from the cover, an RSS feed at `/feed.xml`, and sitemap entries.
-7. Runs on every push to `main` that touches `content/blog/**` (`.github/workflows/blog.yml`: `build.js` + `localize.js`, then commits `concept/`).
+7. Writes `<meta name="drp-rev" content="<git blob SHA of the .md>">` on each article page, hashed with LF line endings. The CMS compares it with the hash of what it published to tell when that version is live.
+8. Adds like, share (WhatsApp, X, Instagram, copy link) and comment blocks under each article. They talk to `/api/blog`, see "Reader likes and comments" in the README.
+9. Runs on every push to `main` that touches `content/blog/**` (`.github/workflows/blog.yml`: `build.js` + `localize.js`, then commits `concept/`).

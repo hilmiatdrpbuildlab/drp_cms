@@ -17,6 +17,9 @@ import {
   type Lang,
 } from "./contract.ts";
 
+/** New articles start with `untitled-<random>` until they get a title; that never goes on the site. */
+export const PLACEHOLDER_SLUG_PREFIX = "untitled-";
+
 export const MEDIA_URL_PREFIX = "/api/media/";
 export const mediaUrl = (key: string) => `${MEDIA_URL_PREFIX}${key}`;
 
@@ -93,6 +96,7 @@ export function planPublish(post: PostForPublish, today: string): PlanResult {
   const parsed = frontmatterSchema.safeParse(candidate);
   const errors = parsed.success ? [] : parsed.error.issues.map((i) => `${i.path.join(".") || "article"}: ${i.message}`);
   if (post.body.trim().length < 50) errors.push("body: write at least a paragraph before publishing");
+  if (post.slug.startsWith(PLACEHOLDER_SLUG_PREFIX)) errors.push("slug: still the placeholder web address. Give the article a title, or type a web address");
   if (!parsed.success || errors.length) return { ok: false, errors };
 
   const body = rewriteMediaUrls(post.body, post.slug);

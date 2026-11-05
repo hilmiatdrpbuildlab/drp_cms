@@ -10,6 +10,9 @@ const schema = z.object({
   GITHUB_TOKEN: z.string().optional(),
   GITHUB_REPO: z.string().regex(/^[\w.-]+\/[\w.-]+$/).default("Lathif21/drp_compro"),
   GITHUB_BRANCH: z.string().min(1).default("main"),
+  /** The website GITHUB_REPO deploys to, e.g. https://drpbuildlab.com. Lets the CMS link to
+   *  articles and check when a publish is live. Optional: without it, progress stops at "built". */
+  SITE_URL: z.string().url().optional().or(z.literal("")),
 });
 
 function load() {
@@ -22,7 +25,12 @@ function load() {
   const url = new URL(env.DATABASE_URL);
   const sslmode = url.searchParams.get("sslmode");
   if (sslmode === "prefer" || sslmode === "require" || sslmode === "verify-ca") url.searchParams.set("sslmode", "verify-full");
-  return { ...env, DATABASE_URL: url.toString(), GITHUB_TOKEN: env.GITHUB_TOKEN || undefined };
+  return {
+    ...env,
+    DATABASE_URL: url.toString(),
+    GITHUB_TOKEN: env.GITHUB_TOKEN || undefined,
+    SITE_URL: env.SITE_URL ? env.SITE_URL.replace(/\/+$/, "") : undefined,
+  };
 }
 
 let cached: ReturnType<typeof load> | undefined;

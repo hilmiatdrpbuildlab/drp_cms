@@ -56,6 +56,36 @@ async function gh<T>(path: string, init: RequestInit & { allow404?: boolean } = 
   return res.status === 204 ? null : ((await res.json()) as T);
 }
 
+export type WorkflowRun = {
+  status: "queued" | "in_progress" | "completed" | string;
+  conclusion: "success" | "failure" | "cancelled" | "skipped" | string | null;
+  url: string;
+  startedAt: string | null;
+  updatedAt: string;
+};
+
+/**
+ * The site rebuild (GitHub Action) a commit started, or null if none has been queued yet.
+ * Needs the token's "Actions: read" permission; without it this returns "forbidden".
+ */
+export async function getWorkflowRun(sha: string): Promise<WorkflowRun | null | "forbidden"> {
+  if (!/^[0-9a-f]{40}$/.test(sha)) return null;
+  try {
+    const res = await gh<{
+      workflow_runs: { name: string; status: string; conclusion: string | null; html_url: string; run_started_at: string | null; updated_at: string; event: string }[];
+    }>(`/actions/runs?head_sha=${sha}&per_page=5`);
+    // drp_compro's .github/workflows/blog.yml is named "Blog"; fall back to any push run.
+    const runs = res?.workflow_runs ?? [];
+    const run = runs.find((r) => r.name === "Blog") ?? runs.find((r) => r.event === "push");
+    return run
+      ? { status: run.status, conclusion: run.conclusion, url: run.html_url, startedAt: run.run_started_at, updatedAt: run.updated_at }
+      : null;
+  } catch (e) {
+    if (e instanceof GitHubError && (e.status === 401 || e.status === 403 || e.status === 404)) return "forbidden";
+    throw e;
+  }
+}
+
 /** Files directly inside a directory on the publish branch ([] if it doesn't exist). */
 export async function listFiles(dir: string): Promise<string[]> {
   assertContentPath(dir);

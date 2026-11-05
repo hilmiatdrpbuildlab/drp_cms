@@ -2,7 +2,7 @@
 
 import { randomBytes } from "node:crypto";
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -10,9 +10,12 @@ import { z } from "zod";
 import { getStaff } from "@/auth/server";
 import { articleMediaDir, articlePath, CATEGORIES, LANGS, SLUG_RE, VIDEO_ASPECTS } from "@/lib/blog/contract";
 import { planPublish } from "@/lib/blog/publish-plan";
+import { gitBlobSha } from "@/lib/blog/rev";
 import { getDb } from "@/lib/db";
-import { commitFiles, GitHubError, listFiles, type FileChange } from "@/lib/github";
-import { media, posts } from "@/lib/schema";
+import { getEnv } from "@/lib/env";
+import { commitFiles, getWorkflowRun, GitHubError, listFiles, type FileChange } from "@/lib/github";
+import { blogComments, blogLikes, media, posts } from "@/lib/schema";
+import { articleUrl } from "@/lib/site";
 import { deleteObject, getObjectBytes } from "@/lib/storage";
 
 // Typed results instead of throws: in production Next.js hides a thrown error's message.
@@ -35,7 +38,8 @@ export async function createPost() {
   const [row] = await getDb()
     .insert(posts)
     .values({
-      title: "Untitled article",
+      // Empty until the editor types one; the slug follows the title until it's edited by hand.
+      title: "",
       slug: `untitled-${randomBytes(3).toString("hex")}`,
       authorName: staff.name,
       createdBy: staff.email,
@@ -49,7 +53,8 @@ const saveInput = z.object({
   id: z.uuid(),
   /** The updatedAt the editor loaded; a mismatch means someone else saved in between. */
   expectedUpdatedAt: z.string(),
-  title: z.string().trim().min(1, "Title is required").max(160),
+  // Drafts may be untitled (autosave runs from the first keystroke); publishing requires a title.
+  title: z.string().trim().max(160),
   slug: z.string().trim().regex(SLUG_RE, "Slug: lowercase letters, digits and single hyphens").min(3).max(80),
   excerpt: z.string().max(300),
   body: z.string().max(200_000),
@@ -101,7 +106,7 @@ export async function savePost(raw: SaveInput): Promise<ActionResult<{ updatedAt
 
 export async function publishPost(
   id: string,
-): Promise<ActionResult<{ updatedAt: string; date: string; commitUrl: string }>> {
+): Promise<ActionResult<{ updatedAt: string; date: string; commitUrl: string; commitSha: string }>> {
   const staff = await getStaff();
   if (!staff) return UNAUTHENTICATED;
   const db = getDb();
@@ -144,12 +149,14 @@ export async function publishPost(
         publishedAt: now,
         publishedBy: staff.email,
         publishedCommit: commit.sha,
+        publishedRev: gitBlobSha(plan.markdown),
         updatedAt: now,
       })
       .where(eq(posts.id, id))
       .returning({ updatedAt: posts.updatedAt });
+    if (plan.oldSlug) await moveReactions(plan.oldSlug, plan.frontmatter.slug);
     revalidatePath("/blog");
-    return { ok: true, updatedAt: row.updatedAt.toISOString(), date: plan.frontmatter.date, commitUrl: commit.url };
+    return { ok: true, updatedAt: row.updatedAt.toISOString(), date: plan.frontmatter.date, commitUrl: commit.url, commitSha: commit.sha };
   } catch (e) {
     if (e instanceof GitHubError) {
       console.error("[publish]", e.message);
@@ -159,7 +166,18 @@ export async function publishPost(
   }
 }
 
-export async function unpublishPost(id: string): Promise<ActionResult<{ updatedAt: string; commitUrl: string }>> {
+/** Likes and comments follow an article to its new web address. */
+async function moveReactions(from: string, to: string) {
+  const db = getDb();
+  await db.update(blogComments).set({ slug: to }).where(eq(blogComments.slug, from));
+  // A visitor who liked both addresses keeps one like.
+  await db.execute(sql`
+    update ${blogLikes} set slug = ${to}
+    where slug = ${from} and not exists (select 1 from ${blogLikes} b where b.slug = ${to} and b.visitor = ${blogLikes}.visitor)`);
+  await db.delete(blogLikes).where(eq(blogLikes.slug, from));
+}
+
+export async function unpublishPost(id: string): Promise<ActionResult<{ updatedAt: string; commitUrl: string; commitSha: string }>> {
   const staff = await getStaff();
   if (!staff) return UNAUTHENTICATED;
   const db = getDb();
@@ -178,11 +196,11 @@ export async function unpublishPost(id: string): Promise<ActionResult<{ updatedA
     });
     const [row] = await db
       .update(posts)
-      .set({ status: "draft", publishedSlug: null, publishedCommit: commit.sha, updatedAt: new Date(), updatedBy: staff.email })
+      .set({ status: "draft", publishedSlug: null, publishedRev: null, publishedCommit: commit.sha, updatedAt: new Date(), updatedBy: staff.email })
       .where(eq(posts.id, id))
       .returning({ updatedAt: posts.updatedAt });
     revalidatePath("/blog");
-    return { ok: true, updatedAt: row.updatedAt.toISOString(), commitUrl: commit.url };
+    return { ok: true, updatedAt: row.updatedAt.toISOString(), commitUrl: commit.url, commitSha: commit.sha };
   } catch (e) {
     if (e instanceof GitHubError) return { ok: false, error: e.message };
     throw e;
@@ -203,4 +221,74 @@ export async function deletePost(id: string): Promise<ActionResult> {
   await db.delete(posts).where(eq(posts.id, id));
   revalidatePath("/blog");
   redirect("/blog");
+}
+
+export type StepState = "waiting" | "running" | "done" | "failed" | "unknown";
+export type PublishProgress = {
+  /** The GitHub Action that builds and translates the site. */
+  build: StepState;
+  /** The page on the website: shows this version (publish) or is gone (unpublish). */
+  live: StepState;
+  buildUrl?: string;
+  liveUrl?: string;
+  /** Why a step is "unknown". */
+  note?: string;
+};
+
+/**
+ * Where the last publish or unpublish of an article is: the editor polls this every few seconds
+ * after pressing Publish, until the website shows the new version.
+ */
+export async function getPublishProgress(id: string): Promise<ActionResult<{ progress: PublishProgress }>> {
+  const staff = await getStaff();
+  if (!staff) return UNAUTHENTICATED;
+  const [post] = await getDb()
+    .select({ slug: posts.slug, publishedSlug: posts.publishedSlug, publishedCommit: posts.publishedCommit, publishedRev: posts.publishedRev })
+    .from(posts)
+    .where(eq(posts.id, id));
+  if (!post?.publishedCommit) return { ok: false, error: "This article hasn't been published." };
+
+  const env = getEnv();
+  const progress: PublishProgress = { build: "waiting", live: "waiting" };
+  const notes: string[] = [];
+
+  try {
+    const run = await getWorkflowRun(post.publishedCommit);
+    if (run === "forbidden") {
+      progress.build = "unknown";
+      notes.push("The CMS can't see build progress: give its GitHub token “Actions: read” access.");
+    } else if (run) {
+      progress.buildUrl = run.url;
+      progress.build =
+        run.status !== "completed" ? (run.status === "in_progress" ? "running" : "waiting") : run.conclusion === "success" ? "done" : "failed";
+    }
+  } catch (e) {
+    console.error("[progress] GitHub", e);
+    progress.build = "unknown";
+  }
+
+  if (!env.SITE_URL) {
+    progress.live = "unknown";
+    notes.push("SITE_URL is not set, so the CMS can't check the website itself.");
+  } else {
+    const slug = post.publishedSlug ?? post.slug;
+    progress.liveUrl = articleUrl(env.SITE_URL, slug);
+    try {
+      const res = await fetch(`${progress.liveUrl}?cms=${Date.now()}`, { cache: "no-store", signal: AbortSignal.timeout(8000) });
+      if (post.publishedSlug) {
+        const html = res.ok ? await res.text() : "";
+        if (post.publishedRev && html.includes(`<meta name="drp-rev" content="${post.publishedRev}">`)) progress.live = "done";
+        // A site build from before drp-rev existed: the page is up and the rebuild finished, so trust that.
+        else if (res.ok && !html.includes('name="drp-rev"') && progress.build === "done") progress.live = "done";
+      } else if (res.status === 404 || res.status === 410) {
+        progress.live = "done";
+      }
+    } catch {
+      /* the site is slow or unreachable: keep waiting */
+    }
+  }
+  // The page is the proof: if it's live, the build necessarily finished.
+  if (progress.live === "done" && progress.build !== "failed") progress.build = "done";
+  if (notes.length) progress.note = notes.join(" ");
+  return { ok: true, progress };
 }

@@ -47,6 +47,7 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
       repo={env.GITHUB_REPO}
       branch={env.GITHUB_BRANCH}
       canPublish={!!env.GITHUB_TOKEN}
+      siteUrl={env.SITE_URL ?? null}
     />
   );
 }

@@ -114,3 +114,9 @@ test("serialised frontmatter has a stable key order", () => {
   assert.deepEqual(keys, ["title", "slug", "date", "author", "category", "tags", "langs", "excerpt", "cover", "draft"]);
   assert.equal(toMarkdownFile(r.plan.frontmatter, "x\r\ny").endsWith("x\ny\n"), true);
 });
+
+test("refuses the placeholder slug of a new article", () => {
+  const r = planPublish({ ...base, slug: "untitled-3b5e38" }, "2026-11-05");
+  assert.equal(r.ok, false);
+  assert.ok(!r.ok && r.errors.some((e) => e.startsWith("slug:")));
+});

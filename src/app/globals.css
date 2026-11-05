@@ -10,9 +10,19 @@
 html { color-scheme: light; }
 body { @apply bg-zinc-50 text-zinc-900 antialiased; }
 
-@utility field { @apply block w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm shadow-xs outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:bg-zinc-100; }
-@utility label { @apply mb-1 block text-xs font-medium text-zinc-600; }
-@utility btn { @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50; }
+@utility field { @apply block w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-[15px] shadow-xs outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:bg-zinc-100; }
+@utility label { @apply mb-1 block text-sm font-medium text-zinc-700; }
+@utility btn { @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3.5 py-2 text-[15px] font-medium transition disabled:cursor-not-allowed disabled:opacity-50; }
 @utility btn-primary { @apply btn bg-accent text-white hover:bg-accent-hover; }
 @utility btn-secondary { @apply btn border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-100; }
 @utility btn-danger { @apply btn border border-red-200 bg-white text-red-700 hover:bg-red-50; }
+
+/* Visual editor (TipTap) */
+.ProseMirror p.is-editor-empty:first-child::before { content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: var(--color-zinc-400); }
+.ProseMirror img { border-radius: 0.375rem; max-height: 480px; }
+.ProseMirror img.ProseMirror-selectednode { outline: 3px solid var(--color-accent); }
+.ProseMirror table { table-layout: fixed; border-collapse: collapse; }
+.ProseMirror td, .ProseMirror th { border: 1px solid var(--color-zinc-300); padding: 0.4rem 0.6rem; vertical-align: top; position: relative; }
+.ProseMirror th { background: var(--color-zinc-50); }
+.ProseMirror .selectedCell::after { content: ""; position: absolute; inset: 0; background: color-mix(in oklab, var(--color-accent) 15%, transparent); pointer-events: none; }
+.ProseMirror .tableWrapper { overflow-x: auto; }
