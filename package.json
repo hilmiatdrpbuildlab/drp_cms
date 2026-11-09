@@ -10,7 +10,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "test": "node --test --experimental-strip-types src/lib/blog/*.test.ts"
+    "test": "node --test --experimental-strip-types src/lib/blog/*.test.ts src/lib/insights/*.test.ts"
   },
   "engines": {
     "node": ">=22.18"

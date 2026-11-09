@@ -1,7 +1,8 @@
 import { sql } from "drizzle-orm";
-import { index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-import type { ArticleVideo } from "./blog/contract.ts";
+import type { ArticleVideo, Lang } from "./blog/contract.ts";
+import type { OfferVersion } from "./insights/offers.ts";
 
 export const postCategory = pgEnum("post_category", ["technical", "partner", "collab"]);
 export const postStatus = pgEnum("post_status", ["draft", "published"]);
@@ -65,7 +66,72 @@ export const media = pgTable(
   (t) => [index("media_post_id_idx").on(t.postId)],
 );
 
+/* ── Offers (Phase 2 of the blog newsletter): docs/offers-consent-contract.md ── */
+
+/**
+ * The CMS's copy of each subscriber's offers consent. Resend is the source of truth (a topic
+ * subscription plus offers_consent_* properties); this copy is kept by the Resend webhook and
+ * "Re-check consent", so Insights needn't call Resend once per contact. Sending still goes through
+ * the Resend topic, so a stale row can never email someone who withdrew.
+ */
+export const offerConsents = pgTable("offer_consents", {
+  email: text("email").primaryKey(),
+  contactId: text("contact_id"),
+  optedIn: boolean("opted_in").notNull(),
+  /** The approved consent text they agreed to. */
+  version: text("version"),
+  consentedAt: timestamp("consented_at", { withTimezone: true, precision: 3 }),
+  /** signup | reconsent */
+  source: text("source"),
+  syncedAt: timestamp("synced_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
+});
+
+/** Blog articles a consenting subscriber clicked in our emails: their interests. Deleted when consent ends. */
+export const articleClicks = pgTable(
+  "article_clicks",
+  {
+    email: text("email").notNull(),
+    slug: text("slug").notNull(),
+    clicks: integer("clicks").notNull().default(1),
+    firstAt: timestamp("first_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
+    lastAt: timestamp("last_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.email, t.slug] })],
+);
+
+export const offerStatus = pgEnum("offer_status", ["draft", "sending", "sent"]);
+
+export type OfferResult = { lang: Lang; recipients: number; segmentId: string; broadcastId: string; sentAt: string };
+
+/** An offer email (e.g. a partner promotion), written per language and sent to consenting subscribers. */
+export const offers = pgTable("offers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  /** The company behind the offer, named in the email. Empty for DRP BuildLab's own. */
+  partner: text("partner").notNull().default(""),
+  /** Interest tags to target; empty = every consenting subscriber. */
+  audienceTags: text("audience_tags").array().notNull().default(sql`'{}'::text[]`),
+  versions: jsonb("versions").$type<Partial<Record<Lang, OfferVersion>>>().notNull().default({}),
+  status: offerStatus("status").notNull().default("draft"),
+  /** One entry per language sent; a failed send resumes with the languages missing here. */
+  results: jsonb("results").$type<OfferResult[]>().notNull().default([]),
+  createdBy: text("created_by").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
+  sentAt: timestamp("sent_at", { withTimezone: true, precision: 3 }),
+  sentBy: text("sent_by"),
+});
+
+/** Current subscribers already asked for offers consent, so nobody is asked twice. */
+export const consentRequests = pgTable("offer_consent_requests", {
+  email: text("email").primaryKey(),
+  sentAt: timestamp("sent_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
+  sentBy: text("sent_by").notNull(),
+});
+
 export type Post = typeof posts.$inferSelect;
+export type Offer = typeof offers.$inferSelect;
 export type Media = typeof media.$inferSelect;
 
 // ---- Reader reactions on drpbuildlab.com ---------------------------------------------------------

@@ -1,6 +1,6 @@
 # DRP CMS
 
-The internal tool for the DRP Build Lab team, at **cms.drpbuildlab.com**. Module 1 is the **blog editor**. The client-project planner will be added here later. It is not part of `drpbuildlab.com` (drp_compro) or the client zone.
+The internal tool for the DRP Build Lab team, at **cms.drpbuildlab.com**. Module 1 is the **blog editor**, with **Insights** on the blog newsletter beside it. The client-project planner will be added here later. It is not part of `drpbuildlab.com` (drp_compro) or the client zone.
 
 ```
 cms.drpbuildlab.com ──(GitHub API: one commit to content/blog/)──▶ drp_compro
@@ -80,10 +80,39 @@ Visitors can like and comment on articles without an account.
 - **Renamed articles.** Publishing a renamed article moves its likes and comments to the new slug.
 - **Creating `blog_site`.** Create the role with SQL as the owner (`CREATE ROLE blog_site LOGIN PASSWORD '…' NOBYPASSRLS`). Do **not** use `neon roles create` or the Console: roles made there join `neon_superuser`, which bypasses row-level security and can read every table. Then run the GRANT block of `0003`. The connection string is the owner's, with `blog_site` and its password.
 
+## Insights (blog newsletter)
+
+The newsletter belongs to the site: drpbuildlab.com's subscribe box, double opt-in and new-article emails are in drp_compro (`netlify/edge-functions/subscribe.js`, `tools/concept/newsletter.js`). Subscribers live in **Resend** as Contacts, one Segment per language (`Blog newsletter (nl)`), and each article email is a Broadcast named `blog:<slug>:<lang>`. The CMS keeps no copy. `/insights` reads Resend directly ([src/lib/resend.ts](src/lib/resend.ts), names parsed in [src/lib/insights/newsletter.ts](src/lib/insights/newsletter.ts)):
+
+- counts, per language and per month, and the subscriber list with search and filters
+- **Export CSV** (`/api/insights/subscribers`); every row states the consent scope
+- **Unsubscribe** (no more emails, address kept as unsubscribed, as the privacy policy says) and **Delete** (erases the contact, for GDPR erasure requests). Both refuse any contact that is not in a blog segment.
+- delivered / opened / clicked people for the 15 most recent article emails, cached 10 minutes
+
+Setup: in the Resend team the site uses, create an API key with **Full access** (a sending-only key can't read contacts) and set it as `RESEND_API_KEY`. Open and click counts need open and click tracking switched on for the sending domain in Resend.
+
+### Offers (Phase 2)
+
+Subscribers can **also** agree, separately and optionally, to offers from DRP BuildLab and partners (e.g. Tinrate). Everyone keeps getting every new article; nobody picks topics. The blog articles a *consenting* subscriber clicks in our emails become their interests (the article's tags). The contract with the site is [docs/offers-consent-contract.md](docs/offers-consent-contract.md); the site side (checkbox, `/blog/offers/` consent page, `/api/subscribe/offers`, privacy text) is in drp_compro.
+
+- **Subscribers tab**: who has offers consent (version and date on hover) and their interests; the setup checklist; *Re-check consent in Resend*; *Ask N subscribers for consent* (one email each, once, linking to the site's consent page).
+- **Offers tab** (`/insights/offers`): write an offer per language, pick interest tags (none = everyone with consent), preview, *Send test to me*, then send. Per language it creates a Resend segment `Offer <id> (<lang>)` and a broadcast limited to the offers topic, so Resend itself re-checks consent. Languages without a version are skipped. A send that stops halfway resumes with the missing languages.
+- **Webhook** `/api/webhooks/resend` (Svix-signed): `email.clicked` records clicks on blog articles for consenting subscribers; `contact.*` events refresh the CMS's copy of consent (`offer_consents`) and delete clicks when consent ends. Deleting a subscriber in Insights deletes both too.
+
+**Locked until the lawyer approves.** Sending offers and consent requests needs `MARKETING_CONSENT_VERSION`; the site ignores the checkbox without it as well. To go live:
+
+1. Lawyer approves the texts (checkbox, consent page, emails, privacy policy). Deploy the site branch with the approved wording.
+2. Set the same `MARKETING_CONSENT_VERSION` (e.g. `2026-11-v1`) and `NEWSLETTER_SECRET` on the site and here, and `MAIL_FROM` here (the site's value).
+3. Resend → Webhooks → add `https://cms.drpbuildlab.com/api/webhooks/resend` with events `email.clicked`, `contact.updated`, `contact.deleted`, `contact.topics.updated`; set its signing secret as `RESEND_WEBHOOK_SECRET`.
+4. Resend → Domains → drpbuildlab.com → turn on click tracking.
+5. `npm run db:migrate` (migration `0004_offers`).
+
+Until then subscribers agreed to **new-article emails only**: don't send them offers or import the list into a CRM for marketing.
+
 ## Deploying to Netlify
 
 1. Create a new Netlify site from this repo. `netlify.toml` already holds the build settings and the `noindex` headers.
-2. Environment variables: `DATABASE_URL`, `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`, `ALLOWED_EMAIL_DOMAIN`, `GITHUB_TOKEN`, `GITHUB_REPO`, `GITHUB_BRANCH`, `SITE_URL`, and for storage **`NEON_STORAGE_ENDPOINT`, `NEON_STORAGE_ACCESS_KEY_ID`, `NEON_STORAGE_SECRET_ACCESS_KEY`, `NEON_STORAGE_REGION`**, with the values of the `AWS_*` lines in `.env.local`. Netlify reserves the `AWS_*` names for its functions.
+2. Environment variables: `DATABASE_URL`, `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`, `ALLOWED_EMAIL_DOMAIN`, `GITHUB_TOKEN`, `GITHUB_REPO`, `GITHUB_BRANCH`, `SITE_URL`, `RESEND_API_KEY` (and for offers `MAIL_FROM`, `MARKETING_CONSENT_VERSION`, `NEWSLETTER_SECRET`, `RESEND_WEBHOOK_SECRET`), and for storage **`NEON_STORAGE_ENDPOINT`, `NEON_STORAGE_ACCESS_KEY_ID`, `NEON_STORAGE_SECRET_ACCESS_KEY`, `NEON_STORAGE_REGION`**, with the values of the `AWS_*` lines in `.env.local`. Netlify reserves the `AWS_*` names for its functions.
 3. Add the domain `cms.drpbuildlab.com`: a CNAME `cms` pointing to the Netlify site.
 4. Add the production origin to Neon Auth's trusted domains: `neon neon-auth domain --help`.
 
@@ -101,4 +130,6 @@ Visitors can like and comment on articles without an account.
 | `src/app/(app)/blog/[id]/publish-progress.tsx` | the steps shown after Publish |
 | `src/app/(app)/comments/` | comment moderation |
 | `src/app/api/media/` | image upload (type checked from file bytes, 5 MB max) and serving to staff |
+| `src/lib/resend.ts`, `src/lib/insights/` | Resend access for Insights; segment/broadcast names, summaries, CSV |
+| `src/app/(app)/insights/` | the Insights page, unsubscribe and delete actions |
 | `src/auth/`, `src/proxy.ts` | Neon Auth wiring |
