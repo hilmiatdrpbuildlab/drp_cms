@@ -31,6 +31,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                 </span>
               )}
             </NavLink>
+            <NavLink href="/insights">Insights</NavLink>
           </nav>
           <div className="ml-auto flex items-center gap-3 text-sm text-zinc-500">
             <span className="hidden sm:inline">{staff.name}</span>

@@ -41,11 +41,14 @@ export const VIDEO_ASPECTS = ["16:9", "9:16", "1:1"] as const;
 export const CONTENT_ROOT = "content/blog/";
 
 export const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/** Pages of the site's blog that are not articles: /blog/subscribe/ and /blog/offers/ (newsletter). */
+export const RESERVED_SLUGS = ["subscribe", "offers"] as const;
 export const slugSchema = z
   .string()
   .min(3, "Slug: at least 3 characters")
   .max(80, "Slug: at most 80 characters")
-  .regex(SLUG_RE, "Slug: lowercase letters, digits and single hyphens only");
+  .regex(SLUG_RE, "Slug: lowercase letters, digits and single hyphens only")
+  .refine((s) => !(RESERVED_SLUGS as readonly string[]).includes(s), "Slug: this one is reserved for a page of the blog");
 
 const httpsUrl = z
   .string()
