@@ -269,20 +269,22 @@ export type ArticleEmailStats = {
 };
 
 const RECIPIENT_TYPES = ["delivered", "opened", "clicked"] as const;
-const STATS_TTL = 10 * 60 * 1000; // Resend caches these lists for up to 15 minutes anyway
-let statsCache: { at: number; limit: number; value: Promise<ArticleEmailStats[]> } | null = null;
+let inFlight: { limit: number; value: Promise<ArticleEmailStats[]> } | null = null;
 
 /**
- * Delivered / opened / clicked people for the most recent new-article emails. Resend has no totals,
- * so each count pages through that broadcast's recipients: kept to `limit` broadcasts and cached.
+ * Delivered / opened / clicked people for the most recent new-article emails, read live from Resend
+ * on every call: no cache, so the numbers are Resend's at that moment. Resend has no totals, so each
+ * count pages through that broadcast's recipients, kept to `limit` broadcasts. Calls that arrive
+ * while a read is running share it, so several open dashboards don't multiply the requests.
  */
 export function getArticleEmailStats(limit = 15): Promise<ArticleEmailStats[]> {
-  if (statsCache && statsCache.limit === limit && Date.now() - statsCache.at < STATS_TTL) return statsCache.value;
+  if (inFlight && inFlight.limit === limit) return inFlight.value;
   const value = loadArticleEmailStats(limit);
-  statsCache = { at: Date.now(), limit, value };
-  value.catch(() => {
-    if (statsCache?.value === value) statsCache = null;
-  });
+  inFlight = { limit, value };
+  const clear = () => {
+    if (inFlight?.value === value) inFlight = null;
+  };
+  value.then(clear, clear);
   return value;
 }
 
@@ -297,7 +299,8 @@ async function loadArticleEmailStats(limit: number): Promise<ArticleEmailStats[]
     .slice(0, limit);
 
   const jobs = sent.flatMap((b) => RECIPIENT_TYPES.map((type) => ({ b, type })));
-  const counts = await pool(jobs, 4, async ({ b, type }) =>
+  // 3 at a time: Resend's 10 a second is shared with sign-ups on the site.
+  const counts = await pool(jobs, 3, async ({ b, type }) =>
     (await listAll<{ id: string }>(`/broadcasts/${encodeURIComponent(b.id)}/recipients?type=${type}`)).length,
   );
 

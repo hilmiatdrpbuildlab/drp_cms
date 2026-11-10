@@ -112,7 +112,7 @@ export default async function Insights() {
 
       <Card
         title="New-article emails"
-        note="The 15 most recent, per language. Counts are people, from Resend; they refresh every 10 minutes. Opens are approximate: some mail apps open every email automatically, others block tracking."
+        note="The 15 most recent, per language. Counts are people, read live from Resend. Opens are approximate: some mail apps open every email automatically, others block tracking."
         flush
       >
         <Suspense fallback={<p className="p-6 text-sm text-zinc-500">Loading email results from Resend…</p>}>

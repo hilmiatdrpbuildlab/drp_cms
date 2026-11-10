@@ -87,7 +87,7 @@ The newsletter belongs to the site: drpbuildlab.com's subscribe box, double opt-
 - counts, per language and per month, and the subscriber list with search and filters
 - **Export CSV** (`/api/insights/subscribers`); every row states the consent scope
 - **Unsubscribe** (no more emails, address kept as unsubscribed, as the privacy policy says) and **Delete** (erases the contact, for GDPR erasure requests). Both refuse any contact that is not in a blog segment.
-- delivered / opened / clicked people for the 15 most recent article emails, cached 10 minutes
+- delivered / opened / clicked people for the 15 most recent article emails, read live from Resend (no cache; the table re-reads every 30 s while visible)
 
 Setup: in the Resend team the site uses, create an API key with **Full access** (a sending-only key can't read contacts) and set it as `RESEND_API_KEY`. Open and click counts need open and click tracking switched on for the sending domain in Resend.
 
