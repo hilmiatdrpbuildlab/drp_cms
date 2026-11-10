@@ -231,7 +231,7 @@ export async function sendConsentRequests(): Promise<ActionResult<{ sent: number
   let sent = 0;
   let failed = 0;
   for (const s of todo) {
-    const lang = s.langs[0];
+    const lang = s.langs[0] ?? "en"; // a contact without blog_lang hears in English
     try {
       const strings = await siteStrings(lang);
       const token = await seal({ e: s.email, l: lang, m: LANG_HOME[lang], t: Date.now(), p: "offers" }, env.NEWSLETTER_SECRET);

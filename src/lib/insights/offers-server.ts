@@ -133,7 +133,7 @@ export async function consentingAudience(): Promise<AudienceMember[]> {
   const [subs, { consents, interests }] = await Promise.all([getSubscribers(), consentsAndInterests()]);
   return subs
     .filter((s) => !s.unsubscribed && consents.get(s.email)?.optedIn)
-    .map((s) => ({ email: s.email, lang: s.langs[0], tags: interests.get(s.email) ?? [] }));
+    .map((s) => ({ email: s.email, lang: s.langs[0] ?? "en", tags: interests.get(s.email) ?? [] }));
 }
 
 /* ── texts from the site ─────────────────────────────────────────────── */
