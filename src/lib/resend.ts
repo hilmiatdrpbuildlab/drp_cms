@@ -2,6 +2,9 @@ import "server-only";
 
 import { getEnv } from "@/lib/env";
 import {
+  BLOG_SEGMENT,
+  LANG_PROP,
+  langOfProperty,
   langOfSegment,
   mergeSegmentContacts,
   parseBroadcastName,
@@ -14,7 +17,7 @@ import { CONSENT_PROPS, OFFERS_TOPIC_NAME } from "@/lib/insights/offers";
 
 /**
  * Resend's REST API, for the blog newsletter that drpbuildlab.com runs (see lib/insights/newsletter.ts).
- * The CMS only reads the list, and unsubscribes or deletes contacts in the blog segments; sign-up and
+ * The CMS only reads the list, and unsubscribes or deletes contacts in the blog segment; sign-up and
  * sending stay on the site.
  *
  * Resend allows 10 requests a second per team, shared with the site, so calls run a few at a time
@@ -101,12 +104,34 @@ async function pool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>
   return out;
 }
 
-async function blogSegments(): Promise<{ id: string; lang: Lang }[]> {
+/** A blog segment, and its language: null for "Blog newsletter" (one per contact, in blog_lang). */
+const blogSegmentLang = (name: string): Lang | null | undefined =>
+  name === BLOG_SEGMENT ? null : (langOfSegment(name) ?? undefined);
+
+/** The "Blog newsletter" segment, plus any language segment of before the November 2026 migration. */
+async function blogSegments(): Promise<{ id: string; lang: Lang | null }[]> {
   const all = await listAll<{ id: string; name: string }>("/segments");
   return all.flatMap((s) => {
-    const lang = langOfSegment(s.name);
-    return lang ? [{ id: s.id, lang }] : [];
+    const lang = blogSegmentLang(s.name);
+    return lang === undefined ? [] : [{ id: s.id, lang }];
   });
+}
+
+/*
+ * Contact lists carry no properties, so a subscriber's language (blog_lang) is one GET per
+ * contact, 3 at a time. Kept per contact for an hour: it changes only when someone signs up again
+ * in another language. At the free plan's 1,000 contacts a cold read is 1,000 requests (a minute
+ * or two); if the list grows that far, read the language another way.
+ */
+const LANG_TTL = 60 * 60 * 1000;
+const langCache = new Map<string, { lang: Lang | null; at: number }>();
+async function contactLang(id: string): Promise<Lang | null> {
+  const hit = langCache.get(id);
+  if (hit && Date.now() - hit.at < LANG_TTL) return hit.lang;
+  const c = await call<{ properties?: Record<string, unknown> }>("GET", `/contacts/${encodeURIComponent(id)}`);
+  const lang = langOfProperty(c.properties?.[LANG_PROP]);
+  langCache.set(id, { lang, at: Date.now() });
+  return lang;
 }
 
 /** Everyone in a blog segment, subscribed or not. */
@@ -116,7 +141,10 @@ export async function getSubscribers(): Promise<Subscriber[]> {
     lang: s.lang,
     contacts: await listAll<ResendContact>(`/segments/${encodeURIComponent(s.id)}/contacts`),
   }));
-  return mergeSegmentContacts(lists);
+  const needLang = [...new Set(lists.filter((l) => l.lang === null).flatMap((l) => l.contacts.map((c) => c.id)))];
+  const langs = new Map(needLang.map((id, i) => [id, i]));
+  const found = await pool(needLang, 3, contactLang);
+  return mergeSegmentContacts(lists, (id) => (langs.has(id) ? found[langs.get(id)!] : null));
 }
 
 const contactPath = (email: string) => `/contacts/${encodeURIComponent(email)}`;
@@ -134,7 +162,7 @@ export async function blogContactId(email: string): Promise<string | null> {
     throw e;
   }
   const segments = await listAll<{ id: string; name: string }>(`${contactPath(email)}/segments`);
-  return segments.some((s) => langOfSegment(s.name)) ? contact.id : null;
+  return segments.some((s) => blogSegmentLang(s.name) !== undefined) ? contact.id : null;
 }
 
 /** Stops all newsletter emails, like the unsubscribe link does. The address stays, marked unsubscribed. */

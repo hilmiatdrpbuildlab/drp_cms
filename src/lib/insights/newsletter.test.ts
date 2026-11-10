@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   csvCell,
+  langOfProperty,
   langOfSegment,
   mergeSegmentContacts,
   parseBroadcastName,
@@ -99,4 +100,25 @@ test("toCsv shows offers consent and interests only for a subscribed, consenting
   const info = new Map([["a@x.be", { optedIn: true, version: "2026-11-v1", consentedAt: "2026-11-09T10:00:00.000Z", interests: ["ai", "chatbots"] }]]);
   assert.match(toCsv([sub], info), /,yes,2026-11-v1,2026-11-09T10:00:00\.000Z,ai chatbots\r\n$/);
   assert.match(toCsv([{ ...sub, unsubscribed: true }], info), /,no,,,\r\n$/);
+});
+
+test("mergeSegmentContacts takes the language from blog_lang for the one blog segment", () => {
+  const subs = mergeSegmentContacts(
+    [
+      { lang: null, contacts: [{ id: "a", email: "A@x.be", created_at: "2026-11-10 10:00:00+00" }, { id: "b", email: "b@x.ie" }] },
+      { lang: "en", contacts: [{ id: "c", email: "c@x.ie" }] },
+    ],
+    (id) => (id === "a" ? "nl" : null),
+  );
+  assert.deepEqual(
+    subs.map((s) => [s.email, s.langs]),
+    [["a@x.be", ["nl"]], ["b@x.ie", []], ["c@x.ie", ["en"]]],
+  );
+});
+
+test("langOfProperty reads blog_lang in either shape Resend returns", () => {
+  assert.equal(langOfProperty({ value: "nl" }), "nl");
+  assert.equal(langOfProperty("fr"), "fr");
+  assert.equal(langOfProperty({ value: "xx" }), null);
+  assert.equal(langOfProperty(undefined), null);
 });

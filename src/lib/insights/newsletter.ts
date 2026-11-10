@@ -2,9 +2,13 @@
  * The blog newsletter as drpbuildlab.com stores it in Resend, read back for the Insights page.
  *
  * The site owns sign-up (drp-buildlab-website: netlify/edge-functions/subscribe.js) and the
- * new-article emails (tools/concept/newsletter.js). Subscribers are Resend Contacts in one
- * Segment per language, named "Blog newsletter (<lang>)". Each article email is a Broadcast
- * named "blog:<slug>:<lang>". If the site changes those names, change them here too.
+ * new-article emails (tools/concept/newsletter.js). Subscribers are Resend Contacts in ONE
+ * Segment, "Blog newsletter". Their language is the contact property blog_lang, and a private
+ * opt-out Topic "Blog newsletter (<lang>)" that article broadcasts are limited to. (Until
+ * November 2026 it was one Segment per language with that same name, which the free plan's
+ * 3 segments could not hold; those old segments are still read until they are gone.)
+ * Each article email is a Broadcast named "blog:<slug>:<lang>". If the site changes those
+ * names, change them here too.
  *
  * Pure module (no server/DB imports) so it can be unit-tested with `node --test`.
  */
@@ -15,7 +19,18 @@ const BROADCAST_RE = /^blog:([a-z0-9]+(?:-[a-z0-9]+)*):([a-z]{2})$/;
 
 const isLang = (s: string): s is Lang => (LANGS as readonly string[]).includes(s);
 
-/** "Blog newsletter (nl)" -> "nl"; any other segment -> null. */
+/** The one segment every blog subscriber is in. */
+export const BLOG_SEGMENT = "Blog newsletter";
+/** The contact property holding a subscriber's language. */
+export const LANG_PROP = "blog_lang";
+
+/** A blog_lang value as Resend returns it ({ value } or a bare string) -> a Lang, or null. */
+export function langOfProperty(prop: unknown): Lang | null {
+  const v = prop && typeof prop === "object" ? (prop as { value?: unknown }).value : prop;
+  return typeof v === "string" && isLang(v) ? v : null;
+}
+
+/** "Blog newsletter (nl)" -> "nl"; any other segment -> null. Also names the language topics. */
 export function langOfSegment(name: string | null | undefined): Lang | null {
   const m = SEGMENT_RE.exec(name ?? "");
   return m && isLang(m[1]) ? m[1] : null;
@@ -47,27 +62,35 @@ export type ResendContact = {
 export type Subscriber = {
   id: string;
   email: string;
-  /** Normally one: the site moves a contact out of the other language segments. */
+  /** Normally one (blog_lang). Empty for a contact in the blog segment without a language. */
   langs: Lang[];
   unsubscribed: boolean;
   /** When the Resend contact was created (first confirmed sign-up), ISO 8601. */
   createdAt: string | null;
 };
 
-/** The contacts of each blog segment, merged into one list, newest first. */
-export function mergeSegmentContacts(segments: { lang: Lang; contacts: ResendContact[] }[]): Subscriber[] {
+/**
+ * The contacts of each blog segment, merged into one list, newest first. A list with lang null
+ * (the "Blog newsletter" segment) takes each contact's language from `langOf` (its blog_lang);
+ * a contact without one is listed with no language.
+ */
+export function mergeSegmentContacts(
+  segments: { lang: Lang | null; contacts: ResendContact[] }[],
+  langOf: (contactId: string) => Lang | null = () => null,
+): Subscriber[] {
   const byId = new Map<string, Subscriber>();
-  for (const { lang, contacts } of segments) {
+  for (const { lang: segLang, contacts } of segments) {
     for (const c of contacts) {
+      const lang = segLang ?? langOf(c.id);
       const found = byId.get(c.id);
       if (found) {
-        if (!found.langs.includes(lang)) found.langs.push(lang);
+        if (lang && !found.langs.includes(lang)) found.langs.push(lang);
         continue;
       }
       byId.set(c.id, {
         id: c.id,
         email: c.email.toLowerCase(),
-        langs: [lang],
+        langs: lang ? [lang] : [],
         unsubscribed: c.unsubscribed === true,
         createdAt: parseResendDate(c.created_at)?.toISOString() ?? null,
       });
