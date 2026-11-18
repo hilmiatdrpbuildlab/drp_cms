@@ -13,6 +13,9 @@ export const DEFAULT_RANGE: RangeDays = 28;
 /** Pages with fewer active users than this are hidden by default: their averages are noise. */
 export const MIN_PAGE_USERS = 5;
 
+/** Page paths fetched per range: enough for every page, so the per-page groups add up completely. */
+export const PAGE_LIMIT = 1000;
+
 /** How long a GA4 answer is reused before asking Google again. */
 export const CACHE_MAX_AGE_MS = 60 * 60 * 1000;
 
@@ -35,6 +38,8 @@ export function gaDateRanges(days: RangeDays) {
 export type Totals = { activeUsers: number; newUsers: number; views: number; engagementSeconds: number };
 export type PageRow = { path: string; views: number; activeUsers: number; engagementSeconds: number };
 export type DayRow = { date: string; activeUsers: number };
+/** One market's totals, straight from GA4 (people counted once, however many of its pages they read). */
+export type MarketRow = { market: string; views: number; activeUsers: number; engagementSeconds: number };
 
 /** Everything the panel shows for one range: what is cached and what the page renders. */
 export type WebsiteSnapshot = {
@@ -43,8 +48,10 @@ export type WebsiteSnapshot = {
   timeZone: string;
   current: Totals;
   previous: Totals;
-  /** Up to 100 pages with the most total engagement time. */
+  /** Every page path (up to PAGE_LIMIT), most total engagement time first. */
   pages: PageRow[];
+  /** Each market that had visitors, most active users first. */
+  markets: MarketRow[];
   /** One entry per day of the range, oldest first, `YYYY-MM-DD`; days without visitors are 0. */
   daily: DayRow[];
 };
@@ -69,24 +76,128 @@ export function change(current: number, previous: number): number | null {
 export type PageWithAverage = PageRow & { avgSeconds: number };
 export type PageSortKey = "path" | "views" | "activeUsers" | "avgSeconds";
 
-/**
- * The top-pages table: each page's average engagement time per active user, optionally only pages
- * with at least `minUsers` active users, sorted by `sortBy` (path A-Z ascending, numbers descending
- * unless `ascending`). Ties go to the page with more active users, then by path.
- */
-export function pageTable(
-  pages: PageRow[],
-  { minUsers = 0, sortBy = "avgSeconds", ascending }: { minUsers?: number; sortBy?: PageSortKey; ascending?: boolean } = {},
-): PageWithAverage[] {
-  const asc = ascending ?? sortBy === "path";
-  const rows = pages
-    .filter((p) => p.activeUsers >= minUsers)
-    .map((p) => ({ ...p, avgSeconds: averageEngagement(p.engagementSeconds, p.activeUsers) }));
-  const dir = asc ? 1 : -1;
+type Sortable = { path: string; views: number; activeUsers: number; avgSeconds: number };
+
+/** Sorts in place: path A-Z, numbers high to low (unless `ascending`); ties by active users, then path. */
+function sortRows<T extends Sortable>(rows: T[], sortBy: PageSortKey, ascending?: boolean): T[] {
+  const dir = (ascending ?? sortBy === "path") ? 1 : -1;
   return rows.sort((a, b) => {
     const primary = sortBy === "path" ? a.path.localeCompare(b.path) : a[sortBy] - b[sortBy];
     return primary * dir || b.activeUsers - a.activeUsers || a.path.localeCompare(b.path);
   });
+}
+
+// ---- Markets ----------------------------------------------------------------------------------
+
+/**
+ * drpbuildlab.com's markets, as in the site's assets/markets.js (drp-buildlab-website): the key is
+ * the URL prefix, with a language version nested ('ch-de' is /ch/de/). Keep in step with the site;
+ * a prefix missing here shows as "No market".
+ */
+export const MARKETS: Record<string, string> = {
+  be: "Belgium",
+  "be-fr": "Belgium (French)",
+  nl: "Netherlands",
+  fr: "France",
+  lu: "Luxembourg",
+  "lu-de": "Luxembourg (German)",
+  ch: "Switzerland",
+  "ch-de": "Switzerland (German)",
+  "ch-it": "Switzerland (Italian)",
+  de: "Germany",
+  at: "Austria",
+  es: "Spain",
+  gb: "United Kingdom",
+  ie: "Ireland",
+  it: "Italy",
+  pl: "Poland",
+  us: "United States",
+  ca: "Canada",
+  "ca-fr": "Canada (French)",
+  mx: "Mexico",
+  cl: "Chile",
+  br: "Brazil",
+  id: "Indonesia",
+  jp: "Japan",
+  sg: "Singapore",
+  au: "Australia",
+  ae: "United Arab Emirates",
+  "ae-en": "United Arab Emirates (English)",
+  sa: "Saudi Arabia",
+  "sa-en": "Saudi Arabia (English)",
+  qa: "Qatar",
+  "qa-en": "Qatar (English)",
+  za: "South Africa",
+  "za-af": "South Africa (Afrikaans)",
+};
+
+/** A market's URL prefix: 'be' → '/be/', 'ch-de' → '/ch/de/'. */
+export const marketPrefix = (market: string) => `/${market.replace("-", "/")}/`;
+export const marketName = (market: string | null) => (market ? (MARKETS[market] ?? market) : "No market");
+
+/**
+ * A page path split into its market and the page within it: '/be/prijzen/' → be + '/prijzen/',
+ * '/ch/de/prijzen/' → ch-de + '/prijzen/', '/be/' → be + '/'. Paths outside a market keep their path.
+ */
+export function splitPath(path: string): { market: string | null; page: string } {
+  const segs = path.split("/").filter(Boolean);
+  let market: string | null = null;
+  let rest = segs;
+  if (segs[0] && MARKETS[segs[0]]) {
+    const nested = segs[1] ? `${segs[0]}-${segs[1]}` : "";
+    market = nested && MARKETS[nested] ? nested : segs[0];
+    rest = segs.slice(market === nested ? 2 : 1);
+  }
+  if (!market) return { market, page: path };
+  return { market, page: rest.length ? `/${rest.join("/")}${path.endsWith("/") ? "/" : ""}` : "/" };
+}
+
+export type MarketPage = PageWithAverage & { market: string | null };
+/** One page across every market: the sums, and the per-market rows (`markets`) it is made of. */
+export type PageGroup = Sortable & { page: string; engagementSeconds: number; markets: MarketPage[] };
+
+/**
+ * The pages table grouped by page: '/be/prijzen/' and '/nl/prijzen/' become one '/prijzen/' row
+ * with a row per market inside. Views and engagement time add up exactly; active users are added
+ * per market, so someone who read the same page in two markets counts twice. `minUsers` applies
+ * to the group's total; sorting applies to the groups and, within each, to its market rows.
+ */
+export function groupPages(
+  pages: PageRow[],
+  { minUsers = 0, sortBy = "avgSeconds", ascending }: { minUsers?: number; sortBy?: PageSortKey; ascending?: boolean } = {},
+): PageGroup[] {
+  const groups = new Map<string, PageGroup>();
+  for (const p of pages) {
+    const { market, page } = splitPath(p.path);
+    let g = groups.get(page);
+    if (!g) groups.set(page, (g = { page, path: page, views: 0, activeUsers: 0, engagementSeconds: 0, avgSeconds: 0, markets: [] }));
+    g.views += p.views;
+    g.activeUsers += p.activeUsers;
+    g.engagementSeconds += p.engagementSeconds;
+    g.markets.push({ ...p, market, avgSeconds: averageEngagement(p.engagementSeconds, p.activeUsers) });
+  }
+  const rows = [...groups.values()].filter((g) => g.activeUsers >= minUsers);
+  for (const g of rows) {
+    g.avgSeconds = averageEngagement(g.engagementSeconds, g.activeUsers);
+    sortRows(g.markets, sortBy, ascending);
+  }
+  return sortRows(rows, sortBy, ascending);
+}
+
+/** The markets that appear in these page paths. */
+export const marketsIn = (pages: PageRow[]) => [...new Set(pages.map((p) => splitPath(p.path).market).filter((m) => m !== null))];
+
+type StringFilter = { fieldName: string; stringFilter: { matchType: "BEGINS_WITH"; value: string } };
+const beginsWith = (value: string): StringFilter => ({ fieldName: "pagePath", stringFilter: { matchType: "BEGINS_WITH", value } });
+
+/** GA4 dimensionFilter for one market's pages: its prefix, without its nested language versions. */
+export function marketFilter(market: string) {
+  const prefix = marketPrefix(market);
+  const nested = Object.keys(MARKETS)
+    .filter((m) => m !== market && marketPrefix(m).startsWith(prefix))
+    .map((m) => ({ notExpression: { filter: beginsWith(marketPrefix(m)) } }));
+  if (!nested.length) return { filter: beginsWith(prefix) };
+  return { andGroup: { expressions: [{ filter: beginsWith(prefix) }, ...nested] } };
 }
 
 /** Today's date in `timeZone` as YYYY-MM-DD. */
