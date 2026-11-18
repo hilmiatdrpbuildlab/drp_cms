@@ -17,7 +17,7 @@ import { getWebsiteAnalytics, websiteSetupProblems } from "@/lib/insights/websit
 
 import { InsightsTabs } from "../tabs";
 import { DailyChart } from "./daily-chart";
-import { PagesTable } from "./pages-table";
+import { MarketTable, PagesTable } from "./pages-table";
 import { LocalTime, RefreshButton } from "./refresh-button";
 
 export const metadata: Metadata = { title: "Website analytics" };
@@ -148,9 +148,13 @@ export default async function WebsiteAnalytics({ searchParams }: { searchParams:
         <DailyChart data={data.daily} />
       </Card>
 
+      <Card title="By market" note="Each market’s pages together, counted by GA4: someone who read several of its pages counts once." flush>
+        <MarketTable markets={data.markets} />
+      </Card>
+
       <Card
-        title="Top pages by time spent"
-        note="Average engagement time per active user on each page. Out of the 100 pages with the most total engagement time. Click a column to sort."
+        title="Pages by time spent"
+        note="One row per page across all markets (/be/prijzen/ and /nl/prijzen/ are /prijzen/); open a row to see each market. Active users are added up per market, so someone who read the same page in two markets counts twice. Click a column to sort."
         flush
       >
         <PagesTable pages={data.pages} siteOrigin={getEnv().SITE_ORIGIN} />

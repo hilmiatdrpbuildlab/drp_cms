@@ -12,10 +12,14 @@ import {
   CACHE_MAX_AGE_MS,
   fillDays,
   gaDateRanges,
+  marketFilter,
+  marketsIn,
+  PAGE_LIMIT,
   parseServiceAccount,
   readThroughCache,
   type CacheEntry,
   type CachedResult,
+  type MarketRow,
   type PageRow,
   type RangeDays,
   type Totals,
@@ -65,6 +69,8 @@ async function runReport(request: protos.google.analytics.data.v1beta.IRunReport
 }
 
 const TOTAL_METRICS = ["activeUsers", "newUsers", "screenPageViews", "userEngagementDuration"].map((name) => ({ name }));
+/** Views, active users, engagement time: the order PageRow and MarketRow are read in. */
+const PAGE_METRICS = ["screenPageViews", "activeUsers", "userEngagementDuration"].map((name) => ({ name }));
 
 /** The three reports for one range, straight from GA4. */
 async function loadSnapshot(days: RangeDays): Promise<WebsiteSnapshot> {
@@ -73,13 +79,13 @@ async function loadSnapshot(days: RangeDays): Promise<WebsiteSnapshot> {
     // 1. Site totals, current and previous period. With two date ranges GA4 adds a `dateRange`
     //    dimension holding each range's name; a range without any data has no row.
     runReport({ dateRanges: [ranges.current, ranges.previous], metrics: TOTAL_METRICS }),
-    // 2. Pages, most total engagement time first.
+    // 2. Pages, most total engagement time first. All of them, so pages grouped across markets add up.
     runReport({
       dateRanges: [ranges.current],
       dimensions: [{ name: "pagePath" }],
-      metrics: [{ name: "screenPageViews" }, { name: "activeUsers" }, { name: "userEngagementDuration" }],
+      metrics: PAGE_METRICS,
       orderBys: [{ metric: { metricName: "userEngagementDuration" }, desc: true }],
-      limit: 100,
+      limit: PAGE_LIMIT,
     }),
     // 3. Active users per day.
     runReport({
@@ -106,14 +112,39 @@ async function loadSnapshot(days: RangeDays): Promise<WebsiteSnapshot> {
   const timeZone = daily.metadata?.timeZone || totals.metadata?.timeZone || "UTC";
   const dayRows = (daily.rows ?? []).map((r) => ({ date: r.dimensionValues?.[0]?.value ?? "", activeUsers: num(r.metricValues?.[0]?.value) }));
 
+  // 4. Per market, one small report each for the markets that had visits: GA4 counts a person once
+  //    per market however many of its pages they read, which adding up page rows can't do.
+  const markets = (
+    await mapLimit(marketsIn(pageRows), 4, async (market): Promise<MarketRow> => {
+      const res = await runReport({ dateRanges: [ranges.current], metrics: PAGE_METRICS, dimensionFilter: marketFilter(market) });
+      const m = res.rows?.[0]?.metricValues ?? [];
+      return { market, views: num(m[0]?.value), activeUsers: num(m[1]?.value), engagementSeconds: num(m[2]?.value) };
+    })
+  ).sort((a, b) => b.activeUsers - a.activeUsers || b.views - a.views);
+
   return {
     days,
     timeZone,
     current: totalsFor("current"),
     previous: totalsFor("previous"),
     pages: pageRows,
+    markets,
     daily: fillDays(dayRows, days, timeZone),
   };
+}
+
+/** `fn` over `items`, at most `limit` at a time (GA4 allows 10 concurrent requests per property). */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
 }
 
 // The cache table may not exist before `npm run db:migrate`; the panel then works without it.
@@ -146,7 +177,8 @@ const inflight = new Map<string, Promise<CachedResult<WebsiteSnapshot>>>();
  * If Google fails, the last cached answer comes back with source "stale"; with nothing cached, it throws.
  */
 export function getWebsiteAnalytics(days: RangeDays, { force = false } = {}): Promise<CachedResult<WebsiteSnapshot>> {
-  const key = `ga4:website:${days}`;
+  // v2: snapshots with per-market totals. Older rows lack them, so they're not reused.
+  const key = `ga4:website:v2:${days}`;
   const flightKey = `${key}:${force}`;
   const running = inflight.get(flightKey);
   if (running) return running;

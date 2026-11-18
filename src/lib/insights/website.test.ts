@@ -7,7 +7,13 @@ import {
   fillDays,
   formatDuration,
   gaDateRanges,
-  pageTable,
+  groupPages,
+  MARKETS,
+  marketFilter,
+  marketName,
+  marketPrefix,
+  marketsIn,
+  splitPath,
   parseRange,
   parseServiceAccount,
   readThroughCache,
@@ -47,8 +53,8 @@ const pages: PageRow[] = [
   { path: "/blog/odd", views: 3, activeUsers: 2, engagementSeconds: 1200 }, // 600s, but only 2 users
 ];
 
-test("pageTable adds each page's average per active user and sorts by it, longest first", () => {
-  const rows = pageTable(pages);
+test("groupPages adds each page's average per active user and sorts by it, longest first", () => {
+  const rows = groupPages(pages);
   assert.deepEqual(
     rows.map((r) => [r.path, r.avgSeconds]),
     [
@@ -60,31 +66,31 @@ test("pageTable adds each page's average per active user and sorts by it, longes
   );
 });
 
-test("pageTable hides pages under the active-user minimum, keeping the boundary", () => {
+test("groupPages hides pages under the active-user minimum, keeping the boundary", () => {
   assert.deepEqual(
-    pageTable(pages, { minUsers: 5 }).map((r) => r.path),
+    groupPages(pages, { minUsers: 5 }).map((r) => r.path),
     ["/blog/long-read", "/contact", "/"],
   );
 });
 
-test("pageTable sorts by other columns; path A-Z, numbers high to low, either way on request", () => {
-  assert.deepEqual(pageTable(pages, { sortBy: "views" }).map((r) => r.views), [400, 40, 12, 3]);
-  assert.deepEqual(pageTable(pages, { sortBy: "views", ascending: true }).map((r) => r.views), [3, 12, 40, 400]);
-  assert.deepEqual(pageTable(pages, { sortBy: "path" }).map((r) => r.path), ["/", "/blog/long-read", "/blog/odd", "/contact"]);
+test("groupPages sorts by other columns; path A-Z, numbers high to low, either way on request", () => {
+  assert.deepEqual(groupPages(pages, { sortBy: "views" }).map((r) => r.views), [400, 40, 12, 3]);
+  assert.deepEqual(groupPages(pages, { sortBy: "views", ascending: true }).map((r) => r.views), [3, 12, 40, 400]);
+  assert.deepEqual(groupPages(pages, { sortBy: "path" }).map((r) => r.path), ["/", "/blog/long-read", "/blog/odd", "/contact"]);
 });
 
-test("pageTable breaks ties by active users, then path", () => {
+test("groupPages breaks ties by active users, then path", () => {
   const tied: PageRow[] = [
     { path: "/b", views: 1, activeUsers: 5, engagementSeconds: 50 },
     { path: "/a", views: 1, activeUsers: 5, engagementSeconds: 50 },
     { path: "/c", views: 1, activeUsers: 10, engagementSeconds: 100 },
   ];
-  assert.deepEqual(pageTable(tied).map((r) => r.path), ["/c", "/a", "/b"]);
+  assert.deepEqual(groupPages(tied).map((r) => r.path), ["/c", "/a", "/b"]);
 });
 
-test("pageTable does not change the rows it was given", () => {
+test("groupPages does not change the rows it was given", () => {
   const copy = structuredClone(pages);
-  pageTable(pages, { minUsers: 5, sortBy: "views" });
+  groupPages(pages, { minUsers: 5, sortBy: "views" });
   assert.deepEqual(pages, copy);
 });
 
@@ -249,4 +255,97 @@ test("parseServiceAccount errors never quote the key", () => {
       (e: Error) => !e.message.includes("SECRET") && !e.message.includes(KEY.client_email) && e.message.startsWith("GA4_SERVICE_ACCOUNT_JSON"),
     );
   }
+});
+
+// ---- Markets ----
+
+test("splitPath separates the market prefix from the page, nested language versions included", () => {
+  assert.deepEqual(splitPath("/be/prijzen/"), { market: "be", page: "/prijzen/" });
+  assert.deepEqual(splitPath("/be/fr/prijzen/"), { market: "be-fr", page: "/prijzen/" });
+  assert.deepEqual(splitPath("/ch/de/blog/a-post/"), { market: "ch-de", page: "/blog/a-post/" });
+  assert.deepEqual(splitPath("/be/"), { market: "be", page: "/" });
+  assert.deepEqual(splitPath("/be"), { market: "be", page: "/" });
+  assert.deepEqual(splitPath("/be/werk"), { market: "be", page: "/werk" });
+  // 'be-de' is not a market, so 'de' is a page under Belgium.
+  assert.deepEqual(splitPath("/be/de/"), { market: "be", page: "/de/" });
+});
+
+test("splitPath leaves paths outside a market as they are", () => {
+  assert.deepEqual(splitPath("/"), { market: null, page: "/" });
+  assert.deepEqual(splitPath("/404.html"), { market: null, page: "/404.html" });
+  assert.deepEqual(splitPath("/xx/prijzen/"), { market: null, page: "/xx/prijzen/" });
+});
+
+test("groupPages adds a page up across markets and keeps each market's row", () => {
+  const groups = groupPages([
+    { path: "/be/prijzen/", views: 84, activeUsers: 52, engagementSeconds: 2756 },
+    { path: "/nl/prijzen/", views: 6, activeUsers: 5, engagementSeconds: 205 },
+    { path: "/be/fr/prijzen/", views: 2, activeUsers: 1, engagementSeconds: 40 },
+    { path: "/be/", views: 454, activeUsers: 198, engagementSeconds: 9306 },
+    { path: "/", views: 3, activeUsers: 3, engagementSeconds: 6 },
+  ]);
+  const prijzen = groups.find((g) => g.page === "/prijzen/")!;
+  assert.deepEqual([prijzen.views, prijzen.activeUsers, prijzen.engagementSeconds], [92, 58, 3001]);
+  assert.equal(prijzen.avgSeconds, 3001 / 58);
+  assert.deepEqual(
+    prijzen.markets.map((m) => [m.market, m.path, m.avgSeconds]),
+    // Market rows sort like the groups: longest average first.
+    [
+      ["be", "/be/prijzen/", 53],
+      ["nl", "/nl/prijzen/", 41],
+      ["be-fr", "/be/fr/prijzen/", 40],
+    ],
+  );
+  // The site root and the market homes are all the home page.
+  assert.deepEqual(
+    groups.find((g) => g.page === "/")!.markets.map((m) => m.market),
+    ["be", null],
+  );
+});
+
+test("groupPages applies the active-user minimum to the page's total, not per market", () => {
+  const groups = groupPages(
+    [
+      { path: "/be/werk/", views: 4, activeUsers: 3, engagementSeconds: 90 },
+      { path: "/nl/werk/", views: 3, activeUsers: 2, engagementSeconds: 60 },
+      { path: "/be/blog/x/", views: 4, activeUsers: 4, engagementSeconds: 90 },
+    ],
+    { minUsers: 5 },
+  );
+  assert.deepEqual(
+    groups.map((g) => [g.page, g.markets.length]),
+    [["/werk/", 2]],
+  );
+});
+
+test("marketsIn lists the markets present, once each", () => {
+  assert.deepEqual(
+    marketsIn([
+      { path: "/be/", views: 1, activeUsers: 1, engagementSeconds: 1 },
+      { path: "/be/werk/", views: 1, activeUsers: 1, engagementSeconds: 1 },
+      { path: "/ch/de/", views: 1, activeUsers: 1, engagementSeconds: 1 },
+      { path: "/", views: 1, activeUsers: 1, engagementSeconds: 1 },
+    ]),
+    ["be", "ch-de"],
+  );
+});
+
+test("marketFilter takes a market's prefix but not its nested language versions", () => {
+  assert.deepEqual(marketFilter("nl"), { filter: { fieldName: "pagePath", stringFilter: { matchType: "BEGINS_WITH", value: "/nl/" } } });
+  assert.deepEqual(marketFilter("ch-de"), { filter: { fieldName: "pagePath", stringFilter: { matchType: "BEGINS_WITH", value: "/ch/de/" } } });
+  const ch = marketFilter("ch") as { andGroup: { expressions: { filter?: { stringFilter: { value: string } }; notExpression?: { filter: { stringFilter: { value: string } } } }[] } };
+  assert.deepEqual(
+    ch.andGroup.expressions.map((e) => (e.filter ? `+${e.filter.stringFilter.value}` : `-${e.notExpression!.filter.stringFilter.value}`)),
+    ["+/ch/", "-/ch/de/", "-/ch/it/"],
+  );
+});
+
+test("every market has a name and a prefix GA4 paths can start with", () => {
+  for (const [key, name] of Object.entries(MARKETS)) {
+    assert.match(key, /^[a-z]{2}(-[a-z]{2})?$/);
+    assert.ok(name.length > 1);
+    assert.equal(splitPath(`${marketPrefix(key)}x/`).market, key);
+  }
+  assert.equal(marketName(null), "No market");
+  assert.equal(marketName("be-fr"), "Belgium (French)");
 });

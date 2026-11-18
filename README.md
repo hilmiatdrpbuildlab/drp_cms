@@ -124,12 +124,15 @@ Until then subscribers agreed to **new-article emails only**: don't send them of
 - **Visitors**: active users, new users and page views, with the change versus the previous period of the same length.
 - **Average time on site**: total `userEngagementDuration` ÷ total `activeUsers`, shown as "Xm Ys".
 - **Active users per day**: a line chart, with a table view.
-- **Top pages by time spent**: the 100 pages with the most total engagement time, each with views, active users and average engagement time per active user (`userEngagementDuration` ÷ `activeUsers`). Sorted by that average; click a column to sort by another. Pages with fewer than 5 active users are hidden until you tick the box.
+- **By market**: views, active users and average time per active user for each market (URL prefix: `/be/`, `/be/fr/`, `/nl/`, …), counted by GA4, so someone who read several pages of a market counts once.
+- **Pages by time spent**: one row per page across all markets (`/be/prijzen/` and `/nl/prijzen/` are `/prijzen/`), with views, active users and average engagement time per active user (`userEngagementDuration` ÷ `activeUsers`); open a row for each market's numbers. A page's active users are added up per market, so someone who read the same page in two markets counts twice. Sorted by the average; click a column to sort by another. Pages with fewer than 5 active users in total are hidden until you tick the box.
+
+The market list is a copy of the site's `assets/markets.js` (`MARKETS` in [src/lib/insights/website.ts](src/lib/insights/website.ts)). When the site adds a market, add it there too; until then its pages show as "No market".
 - Range: last 7, 28 (default) or 90 days, **ending yesterday** in the property's time zone, like GA4's own "Last 28 days".
 
 For "Last 28 days" the totals should match GA4 → Reports → Engagement → Pages and screens, **Total** row (active users, views, average engagement time per active user), within rounding. Numbers exclude or only estimate visitors who declined analytics cookies.
 
-How it works ([src/lib/insights/website-server.ts](src/lib/insights/website-server.ts), rules in [src/lib/insights/website.ts](src/lib/insights/website.ts)): three `runReport` calls to the Google Analytics Data API v1beta from the server, with Google's `@google-analytics/data` client. The answer is kept in the `analytics_cache` table for **1 hour** per range, well inside the API quota. **Refresh** asks Google straight away. If Google can't be reached, the panel shows the last saved data with "Data from <time>" instead of going blank.
+How it works ([src/lib/insights/website-server.ts](src/lib/insights/website-server.ts), rules in [src/lib/insights/website.ts](src/lib/insights/website.ts)): `runReport` calls to the Google Analytics Data API v1beta from the server, with Google's `@google-analytics/data` client: site totals (this period and the one before), every page path, active users per day, and one small report per market that had visits (at most 4 at a time). The answer is kept in the `analytics_cache` table for **1 hour** per range, well inside the API quota. **Refresh** asks Google straight away. If Google can't be reached, the panel shows the last saved data with "Data from <time>" instead of going blank.
 
 ### Setup
 
