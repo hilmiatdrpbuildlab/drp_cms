@@ -1,6 +1,6 @@
 # DRP CMS
 
-The internal tool for the DRP Build Lab team, at **cms.drpbuildlab.com**. Module 1 is the **blog editor**, with **Insights** on the blog newsletter beside it. The client-project planner will be added here later. It is not part of `drpbuildlab.com` (drp_compro) or the client zone.
+The internal tool for the DRP Build Lab team, at **cms.drpbuildlab.com**. Module 1 is the **blog editor**, with **Insights** on the blog newsletter and website visitors beside it. The client-project planner will be added here later. It is not part of `drpbuildlab.com` (drp_compro) or the client zone.
 
 ```
 cms.drpbuildlab.com ──(GitHub API: one commit to content/blog/)──▶ drp_compro
@@ -21,6 +21,14 @@ Articles are written and saved here as drafts. **Publish** commits the Markdown 
 ## Access
 
 Only **verified `@drpbuildlab.com` addresses** get in. The check is in `getStaff()` in [src/auth/server.ts](src/auth/server.ts) and runs on every page, action and API route. Sign-up with any other domain is refused before it reaches Neon Auth.
+
+**Admins.** Some parts (Insights → Website) are for admins only: staff whose Neon Auth user has the role `admin` (Better Auth's admin plugin; the default role is `user`). Others don't see the tab, and the page and its Refresh action refuse them. To make someone admin, set their role in Neon Auth, for example with the Neon MCP tool `update_auth_user_role`, or in SQL:
+
+```sql
+UPDATE neon_auth."user" SET role = 'admin' WHERE email = 'name@drpbuildlab.com';
+```
+
+They see the change after signing out and in again (the session cookie caches the user).
 
 The company mail is Microsoft 365, and Neon Auth offers no Microsoft sign-in, so login is email + password, verified with a code sent by email. Google sign-in is switched off.
 
@@ -109,10 +117,37 @@ Subscribers can **also** agree, separately and optionally, to offers from DRP Bu
 
 Until then subscribers agreed to **new-article emails only**: don't send them offers or import the list into a CRM for marketing.
 
+## Website analytics (Google Analytics 4)
+
+**Insights → Website** (`/insights/website`, **admins only**, see [Access](#access)) shows Google Analytics 4 numbers for drpbuildlab.com: GA4 property **"DRP Build Lab"**, id `552973295` (account `407007061`). The site collects through Google Tag Manager container `GTM-T5V7GG6G`; the CMS only reads reports and changes nothing in GTM or on the site.
+
+- **Visitors**: active users, new users and page views, with the change versus the previous period of the same length.
+- **Average time on site**: total `userEngagementDuration` ÷ total `activeUsers`, shown as "Xm Ys".
+- **Active users per day**: a line chart, with a table view.
+- **Top pages by time spent**: the 100 pages with the most total engagement time, each with views, active users and average engagement time per active user (`userEngagementDuration` ÷ `activeUsers`). Sorted by that average; click a column to sort by another. Pages with fewer than 5 active users are hidden until you tick the box.
+- Range: last 7, 28 (default) or 90 days, **ending yesterday** in the property's time zone, like GA4's own "Last 28 days".
+
+For "Last 28 days" the totals should match GA4 → Reports → Engagement → Pages and screens, **Total** row (active users, views, average engagement time per active user), within rounding. Numbers exclude or only estimate visitors who declined analytics cookies.
+
+How it works ([src/lib/insights/website-server.ts](src/lib/insights/website-server.ts), rules in [src/lib/insights/website.ts](src/lib/insights/website.ts)): three `runReport` calls to the Google Analytics Data API v1beta from the server, with Google's `@google-analytics/data` client. The answer is kept in the `analytics_cache` table for **1 hour** per range, well inside the API quota. **Refresh** asks Google straight away. If Google can't be reached, the panel shows the last saved data with "Data from <time>" instead of going blank.
+
+### Setup
+
+1. In a Google Cloud project, enable the **Google Analytics Data API** (APIs & Services → Library). No billing is needed for it.
+2. IAM & Admin → Service accounts → create one (e.g. `cms-ga4`), no project roles. Keys → Add key → **JSON**. Keep the downloaded file out of the repo and delete it once it is stored in Netlify.
+3. GA4 → Admin → Property **"DRP Build Lab"** → Property access management → add the service account's email (`…@….iam.gserviceaccount.com`) with the **Viewer** role.
+4. Set the environment variables (Netlify, and `.env.local` to run it locally):
+   - `GA4_SERVICE_ACCOUNT_JSON`: the whole key file's contents (base64 of it also works).
+   - `GA4_PROPERTY_ID=552973295`
+5. `npm run db:migrate` (migration `0005_analytics_cache`). Without it the panel still works, just without the cache and the fallback.
+6. Give each person who should see it the admin role ([Access](#access)).
+
+The key is read on the server only. It is never logged, never sent to the browser, and error messages about it never quote it. Netlify no longer limits function environment variables to 4 KB on its current runtime, so the ~2.3 KB key fits.
+
 ## Deploying to Netlify
 
 1. Create a new Netlify site from this repo. `netlify.toml` already holds the build settings and the `noindex` headers.
-2. Environment variables: `DATABASE_URL`, `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`, `ALLOWED_EMAIL_DOMAIN`, `GITHUB_TOKEN`, `GITHUB_REPO`, `GITHUB_BRANCH`, `SITE_URL`, `RESEND_API_KEY` (and for offers `MAIL_FROM`, `MARKETING_CONSENT_VERSION`, `NEWSLETTER_SECRET`, `RESEND_WEBHOOK_SECRET`), and for storage **`NEON_STORAGE_ENDPOINT`, `NEON_STORAGE_ACCESS_KEY_ID`, `NEON_STORAGE_SECRET_ACCESS_KEY`, `NEON_STORAGE_REGION`**, with the values of the `AWS_*` lines in `.env.local`. Netlify reserves the `AWS_*` names for its functions.
+2. Environment variables: `DATABASE_URL`, `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`, `ALLOWED_EMAIL_DOMAIN`, `GITHUB_TOKEN`, `GITHUB_REPO`, `GITHUB_BRANCH`, `SITE_URL`, `RESEND_API_KEY` (and for offers `MAIL_FROM`, `MARKETING_CONSENT_VERSION`, `NEWSLETTER_SECRET`, `RESEND_WEBHOOK_SECRET`), `GA4_SERVICE_ACCOUNT_JSON` and `GA4_PROPERTY_ID` for website analytics, and for storage **`NEON_STORAGE_ENDPOINT`, `NEON_STORAGE_ACCESS_KEY_ID`, `NEON_STORAGE_SECRET_ACCESS_KEY`, `NEON_STORAGE_REGION`**, with the values of the `AWS_*` lines in `.env.local`. Netlify reserves the `AWS_*` names for its functions.
 3. Add the domain `cms.drpbuildlab.com`: a CNAME `cms` pointing to the Netlify site.
 4. Add the production origin to Neon Auth's trusted domains: `neon neon-auth domain --help`.
 
@@ -132,4 +167,5 @@ Until then subscribers agreed to **new-article emails only**: don't send them of
 | `src/app/api/media/` | image upload (type checked from file bytes, 5 MB max) and serving to staff |
 | `src/lib/resend.ts`, `src/lib/insights/` | Resend access for Insights; segment/broadcast names, summaries, CSV |
 | `src/app/(app)/insights/` | the Insights page, unsubscribe and delete actions |
+| `src/lib/insights/website*.ts`, `src/app/(app)/insights/website/` | website analytics from GA4: reports, 1-hour cache with fallback, the admin-only tab |
 | `src/auth/`, `src/proxy.ts` | Neon Auth wiring |

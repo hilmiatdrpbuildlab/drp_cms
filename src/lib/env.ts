@@ -24,6 +24,11 @@ const schema = z.object({
   NEWSLETTER_SECRET: z.string().optional(),
   /** whsec_… of the Resend webhook pointing at /api/webhooks/resend. */
   RESEND_WEBHOOK_SECRET: z.string().optional(),
+  // Website analytics (README.md, "Website analytics"). Each is optional; the Website tab lists what's missing.
+  /** The Google Cloud service account's JSON key (or its base64). Server-only: never logged, never sent to the browser. */
+  GA4_SERVICE_ACCOUNT_JSON: z.string().optional(),
+  /** The GA4 property's numeric id: 552973295 for "DRP Build Lab". */
+  GA4_PROPERTY_ID: z.string().optional(),
 });
 
 function load() {
@@ -50,6 +55,8 @@ function load() {
     MARKETING_CONSENT_VERSION: opt(env.MARKETING_CONSENT_VERSION),
     NEWSLETTER_SECRET: opt(env.NEWSLETTER_SECRET),
     RESEND_WEBHOOK_SECRET: opt(env.RESEND_WEBHOOK_SECRET),
+    GA4_SERVICE_ACCOUNT_JSON: opt(env.GA4_SERVICE_ACCOUNT_JSON),
+    GA4_PROPERTY_ID: opt(env.GA4_PROPERTY_ID),
   };
 }
 
