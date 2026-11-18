@@ -63,16 +63,7 @@ function Stat({ label, value, delta, days }: { label: string; value: string; del
 }
 
 export default async function WebsiteAnalytics({ searchParams }: { searchParams: Promise<{ days?: string | string[] }> }) {
-  const staff = await requireStaff();
-  if (!staff.isAdmin) {
-    return (
-      <Shell>
-        <div className="rounded-xl border border-zinc-200 bg-white p-10 text-center text-sm text-zinc-600">
-          Website analytics is for admins. Ask an admin to give your account the admin role if you need it.
-        </div>
-      </Shell>
-    );
-  }
+  await requireStaff();
 
   const days = parseRange((await searchParams).days);
 
@@ -168,7 +159,7 @@ function Shell({ children, days, controls }: { children: React.ReactNode; days?:
     <main className="mx-auto max-w-7xl space-y-6 px-4 py-8">
       <div>
         <h1 className="text-2xl font-semibold">Insights</h1>
-        <p className="mt-1 text-sm text-zinc-500">Visitors to drpbuildlab.com, from Google Analytics 4. Admins only.</p>
+        <p className="mt-1 text-sm text-zinc-500">Visitors to drpbuildlab.com, from Google Analytics 4.</p>
       </div>
       <InsightsTabs active="website" />
       {days && (

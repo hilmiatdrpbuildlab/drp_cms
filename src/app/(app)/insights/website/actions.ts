@@ -8,11 +8,10 @@ import { getWebsiteAnalytics, websiteSetupProblems } from "@/lib/insights/websit
 
 import type { ActionResult } from "../../blog/actions";
 
-/** The Refresh button: ask GA4 now instead of using the hour-old cache. Admins only. */
+/** The Refresh button: ask GA4 now instead of using the hour-old cache. */
 export async function refreshWebsiteAnalytics(days: string): Promise<ActionResult> {
   const staff = await getStaff();
   if (!staff) return { ok: false, error: "Your session ended. Sign in again in another tab, then retry." };
-  if (!staff.isAdmin) return { ok: false, error: "Only admins can refresh website analytics." };
   if (websiteSetupProblems().length) return { ok: false, error: "Google Analytics is not set up yet." };
 
   try {
