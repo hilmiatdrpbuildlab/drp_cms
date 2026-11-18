@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  broadcastSlugKey,
   csvCell,
   langOfProperty,
   langOfSegment,
@@ -23,6 +24,20 @@ test("parseBroadcastName reads blog:<slug>:<lang>", () => {
   assert.deepEqual(parseBroadcastName("blog:ai-chatbots-101:fr"), { slug: "ai-chatbots-101", lang: "fr" });
   assert.equal(parseBroadcastName("blog:Bad Slug:fr"), null);
   assert.equal(parseBroadcastName("promo:x:en"), null);
+});
+
+test("broadcastSlugKey matches the site's shortened names for long slugs", () => {
+  const short = "small-business-big-target-cybersecurity-in-plain-language";
+  assert.equal(broadcastSlugKey(short), short);
+  // Names the site's tools/concept/newsletter.js gives these slugs:
+  const long = {
+    "we-re-partnering-with-tinrate-and-we-re-testing-it-on-our-own-website-first": "blog:we-re-partnering-with-tinrate-and-we-re-testing-it-on~ce1925e6:en",
+    "your-new-intern-never-sleeps-never-doubts-and-has-no-idea-what-confidential-mean": "blog:your-new-intern-never-sleeps-never-doubts-and-has-no~9f70118e:en",
+  };
+  for (const [slug, name] of Object.entries(long)) {
+    assert.ok(name.length <= 70);
+    assert.deepEqual(parseBroadcastName(name), { slug: broadcastSlugKey(slug), lang: "en" });
+  }
 });
 
 test("parseResendDate accepts Resend's timestamp format", () => {

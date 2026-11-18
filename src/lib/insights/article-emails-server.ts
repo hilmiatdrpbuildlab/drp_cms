@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getDb } from "@/lib/db";
+import { broadcastSlugKey } from "@/lib/insights/newsletter";
 import { getArticleEmailStats, type ArticleEmailStats } from "@/lib/resend";
 import { posts } from "@/lib/schema";
 
@@ -14,16 +15,17 @@ export async function articleEmailSnapshot(): Promise<ArticleEmailSnapshot> {
   if (stats.length === 0) return { fetchedAt, rows: [] };
 
   const found = await getDb().select({ id: posts.id, slug: posts.slug, publishedSlug: posts.publishedSlug, title: posts.title }).from(posts);
-  const bySlug = new Map<string, { id: string; title: string }>();
+  // Keyed the way broadcast names carry a slug: a long slug is shortened there (broadcastSlugKey).
+  const byKey = new Map<string, { id: string; title: string; slug: string }>();
   for (const p of found) {
-    bySlug.set(p.slug, p);
-    if (p.publishedSlug) bySlug.set(p.publishedSlug, p);
+    byKey.set(broadcastSlugKey(p.slug), p);
+    if (p.publishedSlug) byKey.set(broadcastSlugKey(p.publishedSlug), { ...p, slug: p.publishedSlug });
   }
   return {
     fetchedAt,
     rows: stats.map((s) => {
-      const post = bySlug.get(s.slug);
-      return { ...s, postId: post?.id ?? null, title: post?.title ?? null };
+      const post = byKey.get(s.slug);
+      return { ...s, slug: post?.slug ?? s.slug, postId: post?.id ?? null, title: post?.title ?? null };
     }),
   };
 }

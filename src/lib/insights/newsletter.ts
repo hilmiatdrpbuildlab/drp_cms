@@ -7,15 +7,33 @@
  * opt-out Topic "Blog newsletter (<lang>)" that article broadcasts are limited to. (Until
  * November 2026 it was one Segment per language with that same name, which the free plan's
  * 3 segments could not hold; those old segments are still read until they are gone.)
- * Each article email is a Broadcast named "blog:<slug>:<lang>". If the site changes those
- * names, change them here too.
+ * Each article email is a Broadcast named "blog:<slug>:<lang>", or, when that is over Resend's
+ * 70 characters, "blog:<start of slug>~<hash>:<lang>" (see broadcastSlugKey). If the site
+ * changes those names, change them here too.
  *
  * Pure module (no server/DB imports) so it can be unit-tested with `node --test`.
  */
 import { LANGS, type Lang } from "../blog/contract.ts";
 
 const SEGMENT_RE = /^Blog newsletter \(([a-z]{2})\)$/;
-const BROADCAST_RE = /^blog:([a-z0-9]+(?:-[a-z0-9]+)*):([a-z]{2})$/;
+const BROADCAST_RE = /^blog:([a-z0-9]+(?:-[a-z0-9]+)*(?:~[0-9a-f]{8})?):([a-z]{2})$/;
+
+/** Resend refuses a broadcast name over 70 characters. */
+const BROADCAST_NAME_MAX = 70;
+
+/**
+ * The slug part of an article's broadcast name: the slug itself, or, for a slug too long for
+ * "blog:<slug>:<lang>", its start + "~" + an FNV-1a hash of the whole slug. The same as
+ * broadcastName in drp-buildlab-website tools/concept/newsletter.js; keep the two equal.
+ */
+export function broadcastSlugKey(slug: string): string {
+  const lang = "xx";
+  if (`blog:${slug}:${lang}`.length <= BROADCAST_NAME_MAX) return slug;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < slug.length; i++) h = Math.imul(h ^ slug.charCodeAt(i), 0x01000193) >>> 0;
+  const tag = "~" + h.toString(16).padStart(8, "0");
+  return slug.slice(0, BROADCAST_NAME_MAX - `blog:${tag}:${lang}`.length).replace(/-+$/, "") + tag;
+}
 
 const isLang = (s: string): s is Lang => (LANGS as readonly string[]).includes(s);
 
@@ -36,7 +54,10 @@ export function langOfSegment(name: string | null | undefined): Lang | null {
   return m && isLang(m[1]) ? m[1] : null;
 }
 
-/** "blog:my-article:nl" -> { slug, lang }; any other broadcast -> null. */
+/**
+ * "blog:my-article:nl" -> { slug, lang }; any other broadcast -> null. For a shortened name the
+ * slug is its broadcastSlugKey ("start~hash"); match it against broadcastSlugKey of known slugs.
+ */
 export function parseBroadcastName(name: string | null | undefined): { slug: string; lang: Lang } | null {
   const m = BROADCAST_RE.exec(name ?? "");
   return m && isLang(m[2]) ? { slug: m[1], lang: m[2] } : null;

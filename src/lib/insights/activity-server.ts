@@ -3,6 +3,7 @@ import "server-only";
 import { count, gte, isNotNull } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
+import { broadcastSlugKey } from "@/lib/insights/newsletter";
 import { getArticleEmailStats, resendConfigured } from "@/lib/resend";
 import { blogComments, blogLikes, posts } from "@/lib/schema";
 
@@ -45,7 +46,7 @@ export async function articleActivity(): Promise<{ articles: ArticleActivity[]; 
       likesLast30Days: recentMap.get(slug) ?? 0,
       comments: approved.get(slug) ?? 0,
       pendingComments: pending.get(slug) ?? 0,
-      emailClicks: clicks.get(slug) ?? 0,
+      emailClicks: clicks.get(broadcastSlugKey(slug)) ?? 0,
     };
   });
   articles.sort((a, b) => b.likes + b.comments + b.emailClicks - (a.likes + a.comments + a.emailClicks) || a.title.localeCompare(b.title));
