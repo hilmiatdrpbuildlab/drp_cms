@@ -22,13 +22,7 @@ Articles are written and saved here as drafts. **Publish** commits the Markdown 
 
 Only **verified `@drpbuildlab.com` addresses** get in. The check is in `getStaff()` in [src/auth/server.ts](src/auth/server.ts) and runs on every page, action and API route. Sign-up with any other domain is refused before it reaches Neon Auth.
 
-**Admins.** Some parts (Insights → Website) are for admins only: staff whose Neon Auth user has the role `admin` (Better Auth's admin plugin; the default role is `user`). Others don't see the tab, and the page and its Refresh action refuse them. To make someone admin, set their role in Neon Auth, for example with the Neon MCP tool `update_auth_user_role`, or in SQL:
-
-```sql
-UPDATE neon_auth."user" SET role = 'admin' WHERE email = 'name@drpbuildlab.com';
-```
-
-They see the change after signing out and in again (the session cookie caches the user).
+Everyone who gets in sees everything, Insights → Website included; the CMS has no admin-only parts.
 
 The company mail is Microsoft 365, and Neon Auth offers no Microsoft sign-in, so login is email + password, verified with a code sent by email. Google sign-in is switched off.
 
@@ -119,7 +113,7 @@ Until then subscribers agreed to **new-article emails only**: don't send them of
 
 ## Website analytics (Google Analytics 4)
 
-**Insights → Website** (`/insights/website`, **admins only**, see [Access](#access)) shows Google Analytics 4 numbers for drpbuildlab.com: GA4 property **"DRP Build Lab"**, id `552973295` (account `407007061`). The site collects through Google Tag Manager container `GTM-T5V7GG6G`; the CMS only reads reports and changes nothing in GTM or on the site.
+**Insights → Website** (`/insights/website`, all staff) shows Google Analytics 4 numbers for drpbuildlab.com: GA4 property **"DRP Build Lab"**, id `552973295` (account `407007061`). The site collects through Google Tag Manager container `GTM-T5V7GG6G`; the CMS only reads reports and changes nothing in GTM or on the site.
 
 - **Visitors**: active users, new users and page views, with the change versus the previous period of the same length.
 - **Average time on site**: total `userEngagementDuration` ÷ total `activeUsers`, shown as "Xm Ys".
@@ -143,7 +137,6 @@ How it works ([src/lib/insights/website-server.ts](src/lib/insights/website-serv
    - `GA4_SERVICE_ACCOUNT_JSON`: the whole key file's contents (base64 of it also works).
    - `GA4_PROPERTY_ID=552973295`
 5. `npm run db:migrate` (migration `0005_analytics_cache`). Without it the panel still works, just without the cache and the fallback.
-6. Give each person who should see it the admin role ([Access](#access)).
 
 The key is read on the server only. It is never logged, never sent to the browser, and error messages about it never quote it. Netlify no longer limits function environment variables to 4 KB on its current runtime, so the ~2.3 KB key fits.
 
@@ -170,5 +163,5 @@ The key is read on the server only. It is never logged, never sent to the browse
 | `src/app/api/media/` | image upload (type checked from file bytes, 5 MB max) and serving to staff |
 | `src/lib/resend.ts`, `src/lib/insights/` | Resend access for Insights; segment/broadcast names, summaries, CSV |
 | `src/app/(app)/insights/` | the Insights page, unsubscribe and delete actions |
-| `src/lib/insights/website*.ts`, `src/app/(app)/insights/website/` | website analytics from GA4: reports, 1-hour cache with fallback, the admin-only tab |
+| `src/lib/insights/website*.ts`, `src/app/(app)/insights/website/` | website analytics from GA4: reports, 1-hour cache with fallback, the tab |
 | `src/auth/`, `src/proxy.ts` | Neon Auth wiring |
