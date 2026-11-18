@@ -171,3 +171,15 @@ export const blogComments = pgTable(
 );
 
 export type BlogComment = typeof blogComments.$inferSelect;
+
+// ---- Website analytics (Google Analytics 4) -------------------------------------------------------
+
+/**
+ * The last good GA4 answer per report, e.g. key `ga4:website:28`. Reused for an hour to stay well
+ * inside the GA4 API quota, and shown (with its age) when Google can't be reached.
+ */
+export const analyticsCache = pgTable("analytics_cache", {
+  key: text("key").primaryKey(),
+  data: jsonb("data").notNull(),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true, precision: 3 }).notNull(),
+});

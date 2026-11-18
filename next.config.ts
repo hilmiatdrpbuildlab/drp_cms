@@ -18,6 +18,8 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  // Google's client loads its API definitions from files at runtime; leave it in node_modules.
+  serverExternalPackages: ["@google-analytics/data", "google-gax", "google-auth-library"],
   experimental: {
     // Image uploads go through a Route Handler, but keep Server Action bodies roomy for long articles.
     serverActions: { bodySizeLimit: "2mb" },
