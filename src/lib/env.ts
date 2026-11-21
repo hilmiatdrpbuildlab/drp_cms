@@ -29,7 +29,43 @@ const schema = z.object({
   GA4_SERVICE_ACCOUNT_JSON: z.string().optional(),
   /** The GA4 property's numeric id: 552973295 for "DRP Build Lab". */
   GA4_PROPERTY_ID: z.string().optional(),
+  // Sign in with Microsoft through Cloudflare Access (README.md, "Access"). All five, or none:
+  // with any missing, only the email + password login is offered.
+  /** The Cloudflare SaaS app's issuer: https://<team>.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client id>. */
+  ACCESS_OIDC_ISSUER: z.string().optional(),
+  ACCESS_OIDC_CLIENT_ID: z.string().optional(),
+  ACCESS_OIDC_CLIENT_SECRET: z.string().optional(),
+  /** e.g. drp.cloudflareaccess.com. Sign out sends people to its logout page, which ends the shared session. */
+  ACCESS_TEAM_DOMAIN: z.string().optional(),
+  /** 32+ random characters; signs the drp_staff session cookie. Not the same value as NEON_AUTH_COOKIE_SECRET. */
+  STAFF_SESSION_SECRET: z.string().optional(),
 });
+
+const SSO_KEYS = ["ACCESS_OIDC_ISSUER", "ACCESS_OIDC_CLIENT_ID", "ACCESS_OIDC_CLIENT_SECRET", "ACCESS_TEAM_DOMAIN", "STAFF_SESSION_SECRET"] as const;
+
+/** The Microsoft sign-in settings, or undefined when it is not (fully) configured. */
+function ssoConfig(env: z.infer<typeof schema>) {
+  const v = Object.fromEntries(SSO_KEYS.map((k) => [k, env[k]?.trim() || undefined])) as Record<(typeof SSO_KEYS)[number], string | undefined>;
+  const missing = SSO_KEYS.filter((k) => !v[k]);
+  if (missing.length === SSO_KEYS.length) return undefined;
+  if (missing.length) {
+    console.warn(`[sso] Microsoft sign-in is off: ${missing.join(", ")} not set`);
+    return undefined;
+  }
+  if (v.STAFF_SESSION_SECRET!.length < 32) throw new Error("Invalid environment (STAFF_SESSION_SECRET must be at least 32 characters).");
+  const issuer = new URL(v.ACCESS_OIDC_ISSUER!); // throws on a malformed URL
+  const local = issuer.hostname === "localhost" || issuer.hostname === "127.0.0.1"; // a mock provider in local tests
+  if (issuer.protocol !== "https:" && !local) throw new Error("Invalid environment (ACCESS_OIDC_ISSUER must be https).");
+  return {
+    issuer: v.ACCESS_OIDC_ISSUER!.replace(/\/+$/, ""),
+    clientId: v.ACCESS_OIDC_CLIENT_ID!,
+    clientSecret: v.ACCESS_OIDC_CLIENT_SECRET!,
+    teamDomain: v.ACCESS_TEAM_DOMAIN!.replace(/^https?:\/\//, "").replace(/\/+$/, ""),
+    sessionSecret: v.STAFF_SESSION_SECRET!,
+  };
+}
+
+export type SsoConfig = NonNullable<ReturnType<typeof ssoConfig>>;
 
 function load() {
   const parsed = schema.safeParse(process.env);
@@ -57,6 +93,8 @@ function load() {
     RESEND_WEBHOOK_SECRET: opt(env.RESEND_WEBHOOK_SECRET),
     GA4_SERVICE_ACCOUNT_JSON: opt(env.GA4_SERVICE_ACCOUNT_JSON),
     GA4_PROPERTY_ID: opt(env.GA4_PROPERTY_ID),
+    /** Set only when Microsoft sign-in is fully configured. */
+    SSO: ssoConfig(env),
   };
 }
 

@@ -35,7 +35,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           </nav>
           <div className="ml-auto flex items-center gap-3 text-sm text-zinc-500">
             <span className="hidden sm:inline">{staff.name}</span>
-            <SignOutButton className="btn-secondary py-1.5" />
+            <SignOutButton className="btn-secondary py-1.5" microsoft={staff.via === "microsoft"} />
           </div>
         </div>
       </header>
