@@ -20,7 +20,7 @@ async function logout(request: NextRequest) {
   }
   const target = sso ? `https://${sso.teamDomain}/cdn-cgi/access/logout` : new URL("/sign-in", request.url);
   const res = NextResponse.redirect(target, 303);
-  res.cookies.set(SESSION_COOKIE, "", cookieOptions(request.nextUrl.protocol === "https:", 0));
+  res.cookies.set(SESSION_COOKIE, "", cookieOptions(sso ? sso.origin.startsWith("https:") : request.nextUrl.protocol === "https:", 0));
   return res;
 }
 

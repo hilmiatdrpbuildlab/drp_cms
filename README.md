@@ -46,7 +46,7 @@ Code: pure logic and its tests in [src/lib/sso.ts](src/lib/sso.ts), [src/lib/sso
 | Production | `https://cms.drpbuildlab.com/sso/callback` |
 | Local | `http://localhost:3000/sso/callback` (optional) |
 
-**Not on deploy previews** (Lathif, 21 Nov 2026): set the five variables below for the Netlify **Production** deploy context only. Previews and branch deploys then have no Microsoft sign-in and keep the password login. Set for all contexts, a preview would send every visitor to Access with a redirect URL Access does not know.
+**Not on deploy previews** (Lathif, 21 Nov 2026): set the variables below for the Netlify **Production** deploy context only (at least `CMS_URL`: the sign-in needs all six, so one missing keeps it off). Previews and branch deploys then have no Microsoft sign-in and keep the password login. Set for all contexts, a preview would send every visitor to Access with a redirect URL Access does not know.
 
 Scopes `openid`, `email`, `profile`; policy: Allow, emails ending in `@drpbuildlab.com`, Microsoft Entra ID as login method. Copy the issuer, client id and client secret into the CMS env:
 
@@ -57,8 +57,9 @@ Scopes `openid`, `email`, `profile`; policy: Allow, emails ending in `@drpbuildl
 | `ACCESS_OIDC_CLIENT_SECRET` | Client secret |
 | `ACCESS_TEAM_DOMAIN` | e.g. `drp.cloudflareaccess.com` |
 | `STAFF_SESSION_SECRET` | 32+ random characters, its own value (not `NEON_AUTH_COOKIE_SECRET`) |
+| `CMS_URL` | `https://cms.drpbuildlab.com`. Every sign-in redirect and the callback use it, never the request's host: on Netlify a function sees its deploy address (`main--drpbuildlab-cms.netlify.app`), which Cloudflare would refuse as redirect URL |
 
-Microsoft sign-in is on only when **all five** are set; with none of them, the CMS behaves as before (a partial set logs which are missing and stays off).
+Microsoft sign-in is on only when **all six** are set; with none of them, the CMS behaves as before (a partial set logs which are missing and stays off).
 
 ### Email + password (Neon Auth) — to be removed
 

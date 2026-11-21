@@ -29,7 +29,7 @@ const schema = z.object({
   GA4_SERVICE_ACCOUNT_JSON: z.string().optional(),
   /** The GA4 property's numeric id: 552973295 for "DRP Build Lab". */
   GA4_PROPERTY_ID: z.string().optional(),
-  // Sign in with Microsoft through Cloudflare Access (README.md, "Access"). All five, or none:
+  // Sign in with Microsoft through Cloudflare Access (README.md, "Access"). All six, or none:
   // with any missing, only the email + password login is offered.
   /** The Cloudflare SaaS app's issuer: https://<team>.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client id>. */
   ACCESS_OIDC_ISSUER: z.string().optional(),
@@ -39,9 +39,13 @@ const schema = z.object({
   ACCESS_TEAM_DOMAIN: z.string().optional(),
   /** 32+ random characters; signs the drp_staff session cookie. Not the same value as NEON_AUTH_COOKIE_SECRET. */
   STAFF_SESSION_SECRET: z.string().optional(),
+  /** This CMS's own address, e.g. https://cms.drpbuildlab.com: the sign-in's redirect URL registered
+   *  in Cloudflare is CMS_URL + /sso/callback. Taken from config, not from the request, because on
+   *  Netlify a function sees its deploy address (main--drpbuildlab-cms.netlify.app), not the domain. */
+  CMS_URL: z.string().optional(),
 });
 
-const SSO_KEYS = ["ACCESS_OIDC_ISSUER", "ACCESS_OIDC_CLIENT_ID", "ACCESS_OIDC_CLIENT_SECRET", "ACCESS_TEAM_DOMAIN", "STAFF_SESSION_SECRET"] as const;
+const SSO_KEYS = ["ACCESS_OIDC_ISSUER", "ACCESS_OIDC_CLIENT_ID", "ACCESS_OIDC_CLIENT_SECRET", "ACCESS_TEAM_DOMAIN", "STAFF_SESSION_SECRET", "CMS_URL"] as const;
 
 /** The Microsoft sign-in settings, or undefined when it is not (fully) configured. */
 function ssoConfig(env: z.infer<typeof schema>) {
@@ -56,7 +60,12 @@ function ssoConfig(env: z.infer<typeof schema>) {
   const issuer = new URL(v.ACCESS_OIDC_ISSUER!); // throws on a malformed URL
   const local = issuer.hostname === "localhost" || issuer.hostname === "127.0.0.1"; // a mock provider in local tests
   if (issuer.protocol !== "https:" && !local) throw new Error("Invalid environment (ACCESS_OIDC_ISSUER must be https).");
+  const cms = new URL(v.CMS_URL!); // throws on a malformed URL
+  const cmsLocal = cms.hostname === "localhost" || cms.hostname === "127.0.0.1";
+  if (cms.protocol !== "https:" && !cmsLocal) throw new Error("Invalid environment (CMS_URL must be https).");
   return {
+    /** e.g. https://cms.drpbuildlab.com: every sign-in redirect and the callback use it. */
+    origin: cms.origin,
     issuer: v.ACCESS_OIDC_ISSUER!.replace(/\/+$/, ""),
     clientId: v.ACCESS_OIDC_CLIENT_ID!,
     clientSecret: v.ACCESS_OIDC_CLIENT_SECRET!,
