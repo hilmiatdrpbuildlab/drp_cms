@@ -5,7 +5,9 @@ import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 
 import {
   basicAuthHeader,
+  flowCookie,
   isAllowedEmail,
+  randomToken,
   sanitizeNext,
   SESSION_SECONDS,
   SsoError,
@@ -110,5 +112,16 @@ test("verifyIdToken refuses wrong nonce, issuer, audience, expiry, key, or missi
   ];
   for (const [what, token] of cases) {
     await assert.rejects(verifyIdToken(await token, opts), SsoError, what);
+  }
+});
+
+test("flowCookie: one cookie per sign-in attempt, only for states this app makes", () => {
+  const a = randomToken();
+  const b = randomToken();
+  assert.match(flowCookie(a)!, /^drp_sso_flow_[A-Za-z0-9_-]{16}$/);
+  assert.notEqual(flowCookie(a), flowCookie(b), "two tabs signing in at once keep separate cookies");
+  assert.equal(flowCookie(a), flowCookie(a));
+  for (const bad of [null, undefined, "", "short", a + "x", a.slice(0, 42) + "!", "x; Path=/"]) {
+    assert.equal(flowCookie(bad), null, String(bad));
   }
 });

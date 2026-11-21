@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { cookieOptions, getDiscovery, getSso } from "@/auth/sso-server";
-import { FLOW_COOKIE, FLOW_SECONDS, randomToken, sanitizeNext, signFlow } from "@/lib/sso";
+import { flowCookie, FLOW_SECONDS, randomToken, sanitizeNext, signFlow } from "@/lib/sso";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +28,6 @@ export async function GET(request: NextRequest) {
   url.searchParams.set("nonce", flow.nonce);
 
   const res = NextResponse.redirect(url, 303);
-  res.cookies.set(FLOW_COOKIE, await signFlow(flow, sso.sessionSecret), cookieOptions(sso.origin.startsWith("https:"), FLOW_SECONDS, "/sso"));
+  res.cookies.set(flowCookie(flow.state)!, await signFlow(flow, sso.sessionSecret), cookieOptions(sso.origin.startsWith("https:"), FLOW_SECONDS, "/sso"));
   return res;
 }

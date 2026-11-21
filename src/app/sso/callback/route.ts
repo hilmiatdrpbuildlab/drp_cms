@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { cookieOptions, getDiscovery, getKeys, getSso, sessionCookieOptions } from "@/auth/sso-server";
 import { getEnv } from "@/lib/env";
-import { basicAuthHeader, FLOW_COOKIE, isAllowedEmail, SESSION_COOKIE, signSession, SsoError, verifyFlow, verifyIdToken } from "@/lib/sso";
+import { basicAuthHeader, flowCookie, isAllowedEmail, SESSION_COOKIE, signSession, SsoError, verifyFlow, verifyIdToken } from "@/lib/sso";
 
 export const dynamic = "force-dynamic";
 
@@ -11,19 +11,21 @@ export async function GET(request: NextRequest) {
   const sso = getSso();
   if (!sso) return NextResponse.redirect(new URL("/sign-in", request.url), 303);
   const secure = sso.origin.startsWith("https:");
+  const params = request.nextUrl.searchParams;
+  // This attempt's own cookie (src/lib/sso.ts, flowCookie): other tabs' attempts don't disturb it.
+  const flowName = flowCookie(params.get("state"));
 
   // Failures go back to the sign-in page with a short code; the reason is logged, never a token.
   const fail = (code: string, reason: string) => {
     console.warn(`[sso] callback refused: ${reason}`);
     const res = NextResponse.redirect(new URL(`/sign-in?error=${code}`, sso.origin), 303);
-    res.cookies.set(FLOW_COOKIE, "", cookieOptions(secure, 0, "/sso"));
+    if (flowName) res.cookies.set(flowName, "", cookieOptions(secure, 0, "/sso"));
     return res;
   };
 
-  const params = request.nextUrl.searchParams;
   if (params.get("error")) return fail("sso_denied", `provider returned error=${params.get("error")}`);
 
-  const flow = await verifyFlow(request.cookies.get(FLOW_COOKIE)?.value, sso.sessionSecret);
+  const flow = flowName ? await verifyFlow(request.cookies.get(flowName)?.value, sso.sessionSecret) : null;
   if (!flow) return fail("sso_expired", "missing or expired flow cookie");
   if (!params.get("state") || params.get("state") !== flow.state) return fail("sso_expired", "state does not match");
   const code = params.get("code");
@@ -57,6 +59,6 @@ export async function GET(request: NextRequest) {
 
   const res = NextResponse.redirect(new URL(flow.next, sso.origin), 303);
   res.cookies.set(SESSION_COOKIE, await signSession(identity, sso.sessionSecret), sessionCookieOptions(secure));
-  res.cookies.set(FLOW_COOKIE, "", cookieOptions(secure, 0, "/sso"));
+  res.cookies.set(flowName!, "", cookieOptions(secure, 0, "/sso"));
   return res;
 }
