@@ -6,8 +6,15 @@ import { jwtVerify, SignJWT, type JWTVerifyGetKey } from "jose";
 
 /** The app's own session after a Microsoft sign-in. */
 export const SESSION_COOKIE = "drp_staff";
-/** state + nonce + next, between /sso/login and /sso/callback. */
-export const FLOW_COOKIE = "drp_sso_flow";
+/**
+ * state + nonce + next, between /sso/login and /sso/callback: one cookie per sign-in attempt, named
+ * after its state. With one shared cookie, tabs signing in at the same time (several open tabs when
+ * the session runs out) overwrote each other's, and all but the last ended on "sso_expired".
+ * Null for anything that is not a state this app made (randomToken: 43 base64url characters).
+ */
+export function flowCookie(state: string | null | undefined): string | null {
+  return state && /^[A-Za-z0-9_-]{43}$/.test(state) ? `drp_sso_flow_${state.slice(0, 16)}` : null;
+}
 export const SESSION_SECONDS = 8 * 60 * 60;
 export const FLOW_SECONDS = 10 * 60;
 
