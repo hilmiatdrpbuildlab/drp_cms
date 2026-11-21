@@ -15,19 +15,19 @@ export async function GET(request: NextRequest) {
     authorize = (await getDiscovery(sso)).authorization_endpoint;
   } catch (e) {
     console.error("[sso] login:", (e as Error).message);
-    return NextResponse.redirect(new URL("/sign-in?error=sso_failed", request.url), 303);
+    return NextResponse.redirect(new URL("/sign-in?error=sso_failed", sso.origin), 303);
   }
 
   const flow = { state: randomToken(), nonce: randomToken(), next: sanitizeNext(request.nextUrl.searchParams.get("next")) };
   const url = new URL(authorize);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", sso.clientId);
-  url.searchParams.set("redirect_uri", new URL("/sso/callback", request.nextUrl.origin).toString());
+  url.searchParams.set("redirect_uri", new URL("/sso/callback", sso.origin).toString());
   url.searchParams.set("scope", "openid email profile");
   url.searchParams.set("state", flow.state);
   url.searchParams.set("nonce", flow.nonce);
 
   const res = NextResponse.redirect(url, 303);
-  res.cookies.set(FLOW_COOKIE, await signFlow(flow, sso.sessionSecret), cookieOptions(request.nextUrl.protocol === "https:", FLOW_SECONDS, "/sso"));
+  res.cookies.set(FLOW_COOKIE, await signFlow(flow, sso.sessionSecret), cookieOptions(sso.origin.startsWith("https:"), FLOW_SECONDS, "/sso"));
   return res;
 }

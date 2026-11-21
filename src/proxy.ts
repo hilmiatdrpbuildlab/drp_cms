@@ -19,8 +19,9 @@ export default async function proxy(request: NextRequest) {
   const response = await middleware(request);
 
   const location = response?.headers.get("location");
-  if (location && getSso() && new URL(location, request.url).pathname === "/sign-in") {
-    const login = new URL("/sso/login", request.url);
+  const sso = getSso();
+  if (location && sso && new URL(location, request.url).pathname === "/sign-in") {
+    const login = new URL("/sso/login", sso.origin);
     login.searchParams.set("next", request.nextUrl.pathname + request.nextUrl.search);
     const redirect = NextResponse.redirect(login, 307);
     // Neon's redirect may clear a stale session cookie; keep that.
