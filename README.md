@@ -14,19 +14,57 @@ Articles are written and saved here as drafts. **Publish** commits the Markdown 
 - Next.js 16 (App Router, Server Actions), Tailwind 4, TypeScript
 - **Neon** project `drp-cms` (`gentle-bird-32275869`, aws-eu-central-1 / Frankfurt):
   - Postgres with Drizzle ORM: tables `posts` and `media` ([src/lib/schema.ts](src/lib/schema.ts)), migrations in `drizzle/`
-  - Neon Auth (managed Better Auth): email + password, OTP email verification
+  - Neon Auth (managed Better Auth): email + password, OTP email verification (to be removed; see Access)
   - Object storage: private bucket `media`, for uploaded images
+- Cloudflare Access for SaaS (OIDC, Microsoft Entra ID): the shared Microsoft sign-in of the internal apps
 - Netlify for hosting (its own site)
 
 ## Access
 
-Only **verified `@drpbuildlab.com` addresses** get in. The check is in `getStaff()` in [src/auth/server.ts](src/auth/server.ts) and runs on every page, action and API route. Sign-up with any other domain is refused before it reaches Neon Auth.
+Only **`@drpbuildlab.com` addresses** get in. The check is in `getStaff()` in [src/auth/server.ts](src/auth/server.ts) and runs on every page, action and API route. Everyone who gets in sees everything, Insights → Website included; the CMS has no admin-only parts.
 
-Everyone who gets in sees everything, Insights → Website included; the CMS has no admin-only parts.
+There are two ways to sign in. Both lead to the same `getStaff()`; a Microsoft sign-in wins when both exist.
 
-The company mail is Microsoft 365, and Neon Auth offers no Microsoft sign-in, so login is email + password, verified with a code sent by email. Google sign-in is switched off.
+### Sign in with Microsoft (shared login of the internal apps)
 
-Once everyone on the team has an account, close sign-ups:
+The company login of all internal apps (DRP Operational, the portal, the CMS, the client zone staff pages): Cloudflare Access with Microsoft Entra ID, the same sign-in session for every app. drp-operational's `docs/INTERNAL_GATEWAY.md` has the overall picture.
+
+The CMS stays on `cms.drpbuildlab.com`, whose DNS is not on Cloudflare, so Access cannot stand in front of it. Instead the CMS uses Access as its **OIDC login provider** ("Access for SaaS", a generic OIDC application in Cloudflare Zero Trust):
+
+1. A signed-out visit to any page goes **straight to** `/sso/login` (Lathif, 21 Nov 2026; the password form stays reachable by opening `/sign-in` directly, until it is removed). `/sso/login` sends the browser to Access, with a `state` and `nonce` kept in a 10-minute signed cookie (`drp_sso_flow`, path `/sso`).
+2. Access asks Microsoft only if there is no Cloudflare session yet. Signed in to another internal app already: no prompt, straight back.
+3. `/sso/callback` checks the state, exchanges the code (client secret), verifies the id_token (RS256 signature from the app's JWKS, issuer, audience = client id, expiry, nonce) and requires an `@ALLOWED_EMAIL_DOMAIN` address.
+4. The CMS then keeps its own session: cookie `drp_staff`, an HS256 JWT signed with `STAFF_SESSION_SECRET` (email, name, Access `sub`), **8 hours**, HttpOnly, Secure, SameSite=Lax. After 8 hours the next page load goes through Access again, with no prompt while the Cloudflare session lives.
+5. **Sign out** (`/sso/logout`) clears `drp_staff` and any password session, then opens Cloudflare Access's logout page (`https://<ACCESS_TEAM_DOMAIN>/cdn-cgi/access/logout`), which ends the shared session for every internal app. A CMS tab whose own cookie is still valid can't be reached by a sign-out done in another app; it ends at the latest when its 8 hours are up.
+
+Code: pure logic and its tests in [src/lib/sso.ts](src/lib/sso.ts), [src/lib/sso.test.ts](src/lib/sso.test.ts); discovery, keys and cookies in [src/auth/sso-server.ts](src/auth/sso-server.ts); routes in `src/app/sso/`. Identity is the email (as before: every `created_by`, `updated_by`, `published_by`, `moderated_by` column stores the email, never an account id), so the same person keeps the same history whichever way they signed in.
+
+**Setup.** In Cloudflare Zero Trust → Access → Applications → Add an application → **SaaS** → application type *OIDC* (one app per environment). Redirect URL:
+
+| Environment | Redirect URL to register |
+|---|---|
+| Production | `https://cms.drpbuildlab.com/sso/callback` |
+| Local | `http://localhost:3000/sso/callback` (optional) |
+
+**Not on deploy previews** (Lathif, 21 Nov 2026): set the five variables below for the Netlify **Production** deploy context only. Previews and branch deploys then have no Microsoft sign-in and keep the password login. Set for all contexts, a preview would send every visitor to Access with a redirect URL Access does not know.
+
+Scopes `openid`, `email`, `profile`; policy: Allow, emails ending in `@drpbuildlab.com`, Microsoft Entra ID as login method. Copy the issuer, client id and client secret into the CMS env:
+
+| Variable | Value |
+|---|---|
+| `ACCESS_OIDC_ISSUER` | The SaaS app's issuer, `https://<team>.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client id>` (the CMS reads `/.well-known/openid-configuration` under it) |
+| `ACCESS_OIDC_CLIENT_ID` | Client ID |
+| `ACCESS_OIDC_CLIENT_SECRET` | Client secret |
+| `ACCESS_TEAM_DOMAIN` | e.g. `drp.cloudflareaccess.com` |
+| `STAFF_SESSION_SECRET` | 32+ random characters, its own value (not `NEON_AUTH_COOKIE_SECRET`) |
+
+Microsoft sign-in is on only when **all five** are set; with none of them, the CMS behaves as before (a partial set logs which are missing and stays off).
+
+### Email + password (Neon Auth) — to be removed
+
+Login with email + password, verified with a code sent by email (Neon Auth offers no Microsoft sign-in). Sign-up with any other domain is refused before it reaches Neon Auth. Google sign-in is switched off.
+
+**This login stays only until Microsoft sign-in is proven on production; a later change removes it** (and Neon Auth with it). Until then, once everyone on the team has an account, close sign-ups:
 
 ```bash
 neon neon-auth config email-password update --project-id gentle-bird-32275869 --branch main --disable-sign-up
